@@ -65,7 +65,7 @@ fi
 echo
 
 echo "[3/4] Model artifact hash check + no-retrain metric reproduction"
-EXPECTED_MODEL_MD5=$(grep "md5:" models/baseline_model.joblib.dvc | awk '{print $2}')
+EXPECTED_MODEL_MD5=$(grep "md5:" models/baseline_model.joblib.dvc | awk '{print $3}')
 ACTUAL_MODEL_MD5=$(md5sum models/baseline_model.joblib | awk '{print $1}')
 
 if [ "$ACTUAL_MODEL_MD5" = "$EXPECTED_MODEL_MD5" ]; then
