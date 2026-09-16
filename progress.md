@@ -39,6 +39,31 @@ phase's validation gate passes. This file is the running record of that —
 anyone should be able to read it and understand exactly what exists today
 and what doesn't yet.
 
+## Traceability: finding which phase an issue came from
+
+Every phase is closed out with a **git tag** (`phase-N-complete`) placed on
+the exact commit whose validation gate passed. This means:
+
+- `git log phase-0-complete..phase-1-complete` shows exactly the commits
+  added during Phase 1, and nothing else.
+- `git diff phase-0-complete..phase-1-complete -- <path>` shows exactly what
+  changed in a given file during Phase 1.
+- `git tag -l -n1` lists every phase boundary with its one-line gate summary.
+- If a bug surfaces later, `git bisect` between two phase tags (or between
+  any two commits) will land on the exact commit, which — because commits
+  are one-phase-at-a-time — tells you the phase.
+
+Each phase section below also lists exactly which files/commands it
+introduced or changed, so you don't strictly need git to find the origin —
+the log here is a second, human-readable copy of the same information.
+
+**Rule going forward:** work for a phase stays in that phase's commit(s);
+nothing from a later phase gets silently mixed into an earlier phase's
+commit or tag. If a fix for an old phase's bug is needed after later phases
+have started, it lands as a new commit and is called out explicitly in that
+later phase's section (e.g. "Phase 3 note: fixed a Phase 1 bug in ...") —
+never rewritten into the original tagged commit.
+
 ## Phase status
 
 | Phase | Status |
@@ -59,6 +84,9 @@ and what doesn't yet.
 ---
 
 ## Phase 0 — Foundation & Scope Lock
+
+**Git tag:** `phase-0-complete` (commit `c4b6ed2`) — everything in this
+phase is between the start of the repo and this tag.
 
 **Goal:** lock the dataset, lock the security-score formula (before any
 detection code exists), and confirm the project environment is reproducible.
