@@ -207,8 +207,8 @@ progress.md            (this file)
 
 ## Phase 1 — ML Baseline
 
-**Git commit range:** starts at `9b78e23` (end of Phase 0) — see the repo's
-`git log` for the exact commits once pushed.
+**Git commit range:** `9b78e23..1886379` (single commit `1886379`, right
+after Phase 0's `9b78e23`).
 
 **Goal:** train a working binary (normal/attack) classifier on the locked
 NSL-KDD split, no security features yet, and prove it clears a pre-agreed,
