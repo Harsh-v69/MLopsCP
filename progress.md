@@ -41,17 +41,24 @@ and what doesn't yet.
 
 ## Traceability: finding which phase an issue came from
 
-Every phase is closed out with a **git tag** (`phase-N-complete`) placed on
-the exact commit whose validation gate passed. This means:
+Every phase's section below starts with **"Git commit range"**: the exact
+commit SHA where the phase's gate passed (and, once there's more than one
+phase, the SHA range covering just that phase). This is the primary
+mechanism — it doesn't depend on anything beyond normal git:
 
-- `git log phase-0-complete..phase-1-complete` shows exactly the commits
-  added during Phase 1, and nothing else.
-- `git diff phase-0-complete..phase-1-complete -- <path>` shows exactly what
-  changed in a given file during Phase 1.
-- `git tag -l -n1` lists every phase boundary with its one-line gate summary.
-- If a bug surfaces later, `git bisect` between two phase tags (or between
-  any two commits) will land on the exact commit, which — because commits
-  are one-phase-at-a-time — tells you the phase.
+- `git show <sha>` / `git log <sha-start>..<sha-end>` shows exactly the
+  commits in a phase.
+- `git diff <sha-start>..<sha-end> -- <path>` shows exactly what changed in
+  a given file during that phase.
+- `git bisect` between two phase-boundary SHAs will land on the exact
+  commit, which — because commits are one-phase-at-a-time (see rule below)
+  — tells you the phase.
+
+(Note: this session's push credentials are scoped to the
+`claude/funny-johnson-dz42uw` branch ref only, so annotated git tags
+created locally for phase boundaries do not push to the remote — a 403 on
+`refs/tags/*` specifically, while branch pushes work fine. Commit SHAs
+recorded here are the durable, remote-visible record instead.)
 
 Each phase section below also lists exactly which files/commands it
 introduced or changed, so you don't strictly need git to find the origin —
@@ -85,8 +92,9 @@ never rewritten into the original tagged commit.
 
 ## Phase 0 — Foundation & Scope Lock
 
-**Git tag:** `phase-0-complete` (commit `c4b6ed2`) — everything in this
-phase is between the start of the repo and this tag.
+**Git commit range:** repo start `c4b6ed2` (dataset + formula + scaffold)
+through `b96a894` (this traceability note) — everything in this phase is
+these two commits; nothing else has been committed yet.
 
 **Goal:** lock the dataset, lock the security-score formula (before any
 detection code exists), and confirm the project environment is reproducible.
