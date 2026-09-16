@@ -76,7 +76,7 @@ never rewritten into the original tagged commit.
 | Phase | Status |
 |---|---|
 | **Phase 0 — Foundation & Scope Lock** | ✅ Complete — gate passed (see below) |
-| Phase 1 — ML Baseline | Not started |
+| **Phase 1 — ML Baseline** | ✅ Complete — gate passed (see below) |
 | Phase 2 — MLOps Foundation (DVC + MLflow) | Not started |
 | Phase 3 — Pipeline Automation (Airflow) | Not started |
 | Phase 4 — Deployment Service (FastAPI + Docker) | Not started |
@@ -203,9 +203,94 @@ src/
 progress.md            (this file)
 ```
 
-### Next: Phase 1 — ML Baseline
+---
 
-Train a baseline classifier on the locked NSL-KDD split, no security
-features yet. Gate: minimum performance bar (F1) agreed and met, and
-retraining with the same seed reproduces the same metrics within tolerance.
-Not started yet — waiting on Phase 0 sign-off.
+## Phase 1 — ML Baseline
+
+**Git commit range:** starts at `9b78e23` (end of Phase 0) — see the repo's
+`git log` for the exact commits once pushed.
+
+**Goal:** train a working binary (normal/attack) classifier on the locked
+NSL-KDD split, no security features yet, and prove it clears a pre-agreed,
+pre-written performance bar and is exactly reproducible.
+
+### What was built
+
+- **Spec locked first**, in `docs/phase1_baseline_spec.md`, before any
+  training code existed: binary-classification framing (`normal` vs
+  `attack` — NSL-KDD's ~23 attack subtypes are collapsed, since the
+  Security Gate only needs a block/allow signal, not attack typing),
+  preprocessing choices (one-hot encode `protocol_type`/`service`/`flag`
+  with `handle_unknown="ignore"`; drop the `difficulty` column as
+  KDD-competition metadata that would leak information), model choice
+  (`RandomForestClassifier`, `n_estimators=200`, `random_state=42`,
+  `n_jobs=1` for determinism), and — most importantly — the minimum bar:
+  **F1 ≥ 0.75 on `KDDTest+.txt`**, deliberately lower than a naive "F1
+  should be high" instinct because NSL-KDD's official test set is built to
+  contain attack types absent from training, and a much higher score there
+  would actually indicate a data leak, not a better model. That reasoning
+  is written down in the spec, not just the number.
+- **Training/eval script**: `src/models/train_baseline.py`. Trains on
+  Phase 0's fixed-seed train split, evaluates on both the Phase 0
+  validation split (same-distribution sanity check) and `KDDTest+.txt` (the
+  real gate metric), runs 5-fold stratified CV on the training split for a
+  stability check, and writes everything to
+  `data/processed/phase1_metrics.json`.
+- **`requirements.txt` corrected** to the package versions actually
+  installed and tested (`pandas==3.0.5`, `numpy==2.4.6`,
+  `scikit-learn==1.9.1`) — the Phase 0 pins were aspirational and had
+  drifted from what `pip install` actually resolved in this environment;
+  fixed now so the pinned versions match what was verified, not a guess.
+- **Validation gate script**: `scripts/validate_phase1.sh`.
+
+### Validation gate result
+
+Run: `bash scripts/validate_phase1.sh`
+
+```
+=== Phase 1 Validation Gate ===
+
+[1/3] Training run 1
+Validation split F1: 0.9985
+KDDTest+ F1:         0.7653
+CV F1 mean/std:      0.9986 / 0.0003
+
+[2/3] Training run 2 (reproducibility check)
+Validation split F1: 0.9985
+KDDTest+ F1:         0.7653
+CV F1 mean/std:      0.9986 / 0.0003
+  Two runs produced bit-identical metrics
+
+[3/3] Threshold checks
+  KDDTest+ F1 = 0.7653 >= 0.75 (PASS)
+  CV F1 std = 0.0003 < 0.05 (PASS)
+
+=== PHASE 1 GATE: PASSED ===
+```
+
+Read the two F1 numbers together, not separately: 0.9985 on the
+same-distribution validation split shows the model learned the training
+distribution well; 0.7653 on `KDDTest+` (which contains attack types the
+model never saw) shows a realistic, non-leaked generalization gap — exactly
+the pattern the spec predicted before training ran.
+
+### Repo additions in this phase
+
+```
+docs/
+  phase1_baseline_spec.md
+src/
+  models/train_baseline.py
+data/
+  processed/phase1_metrics.json   (metrics from the last training run)
+scripts/
+  validate_phase1.sh
+```
+
+### Next: Phase 2 — MLOps Foundation (DVC + MLflow)
+
+Wire up DVC for dataset/model versioning and MLflow for experiment tracking
+around the Phase 1 model. Gate: a clean checkout can `dvc pull` and
+reproduce the exact registered Phase 1 model artifact (same hash, same
+metrics) using only what's in DVC + MLflow. Not started yet — waiting on
+Phase 1 sign-off.
