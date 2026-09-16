@@ -1,0 +1,5 @@
+outs:
+- md5: f5592a95d1d1428348dfa6ca9652a800
+  size: 19109424
+  hash: md5
+  path: KDDTrain+.txt

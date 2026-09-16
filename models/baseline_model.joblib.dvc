@@ -1,0 +1,5 @@
+outs:
+- md5: a898ab58db2f9c65de0ffab0a2b17a7d
+  size: 16658882
+  hash: md5
+  path: baseline_model.joblib

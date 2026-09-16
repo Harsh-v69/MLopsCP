@@ -51,3 +51,13 @@ against the upstream source before trusting any downstream result.
 
 NSL-KDD is a public research benchmark distributed for academic use. No PII;
 synthetic/simulated network traffic. Safe to commit directly to this repo.
+
+## Storage (updated in Phase 2)
+
+As of Phase 2, `KDDTrain+.txt` and `KDDTest+.txt` are **DVC-tracked**, not
+committed to git directly. Git holds only the small `.dvc` pointer files
+(`KDDTrain+.txt.dvc`, `KDDTest+.txt.dvc`), which record the hashes above;
+the actual file content lives in the DVC cache/remote. Run `dvc pull` after
+cloning to materialize the files here. See `progress.md`'s Phase 2 section
+for the remote configuration and its current MVP limitation (a
+local-directory remote, not cloud storage).

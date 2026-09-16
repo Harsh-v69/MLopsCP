@@ -8,6 +8,9 @@ docs/phase1_baseline_spec.md before this file was written.
 import json
 from pathlib import Path
 
+import joblib
+import mlflow
+import mlflow.sklearn
 import numpy as np
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestClassifier
@@ -33,7 +36,12 @@ NUMERIC_FEATURES = [
     c for c in COLUMN_NAMES if c not in CATEGORICAL_FEATURES + DROPPED_COLUMNS
 ]
 
-METRICS_OUT = Path(__file__).resolve().parents[2] / "data" / "processed" / "phase1_metrics.json"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+METRICS_OUT = REPO_ROOT / "data" / "processed" / "phase1_metrics.json"
+MODEL_OUT = REPO_ROOT / "models" / "baseline_model.joblib"
+MLFLOW_TRACKING_URI = f"sqlite:///{REPO_ROOT / 'mlflow.db'}"
+MLFLOW_EXPERIMENT_NAME = "mlshield-baseline"
+MLFLOW_REGISTERED_MODEL_NAME = "mlshield-baseline-rf"
 
 
 def to_binary_label(label_col: "pd.Series") -> "pd.Series":
@@ -104,10 +112,45 @@ def main():
     METRICS_OUT.parent.mkdir(parents=True, exist_ok=True)
     METRICS_OUT.write_text(json.dumps(results, indent=2))
 
+    MODEL_OUT.parent.mkdir(parents=True, exist_ok=True)
+    joblib.dump(pipeline, MODEL_OUT)
+
+    mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+    mlflow.set_experiment(MLFLOW_EXPERIMENT_NAME)
+    with mlflow.start_run(run_name="baseline-random-forest") as run:
+        mlflow.log_params({
+            "random_seed": RANDOM_SEED,
+            "n_estimators": N_ESTIMATORS,
+            "model_type": "RandomForestClassifier",
+            "task": "binary_normal_vs_attack",
+            "n_jobs": 1,
+        })
+        mlflow.log_metrics({
+            "val_f1": val_metrics["f1"],
+            "val_accuracy": val_metrics["accuracy"],
+            "val_precision": val_metrics["precision"],
+            "val_recall": val_metrics["recall"],
+            "kddtest_f1": test_metrics["f1"],
+            "kddtest_accuracy": test_metrics["accuracy"],
+            "kddtest_precision": test_metrics["precision"],
+            "kddtest_recall": test_metrics["recall"],
+            "cv_f1_mean": results["cv_f1_mean"],
+            "cv_f1_std": results["cv_f1_std"],
+        })
+        mlflow.log_artifact(str(METRICS_OUT), artifact_path="metrics")
+        mlflow.sklearn.log_model(
+            pipeline,
+            name="model",
+            registered_model_name=MLFLOW_REGISTERED_MODEL_NAME,
+        )
+        results["mlflow_run_id"] = run.info.run_id
+
     print(f"Validation split F1: {val_metrics['f1']:.4f}")
     print(f"KDDTest+ F1:         {test_metrics['f1']:.4f}")
     print(f"CV F1 mean/std:      {results['cv_f1_mean']:.4f} / {results['cv_f1_std']:.4f}")
     print(f"Metrics written to {METRICS_OUT}")
+    print(f"Model artifact written to {MODEL_OUT}")
+    print(f"MLflow run id: {results['mlflow_run_id']}")
     return results
 
 
