@@ -1,0 +1,10 @@
+{
+  "epsilon": 0.05,
+  "n_eval_samples": 100,
+  "clean_accuracy": 1.0,
+  "adversarial_accuracy": 0.99,
+  "degradation": 0.010000000000000009,
+  "max_allowed_degradation": 0.3,
+  "n_rate_feature_dims_actually_perturbed": 15,
+  "passed": true
+}

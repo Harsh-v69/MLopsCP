@@ -1,0 +1,6 @@
+# Phase 6 test fixture ONLY - never installed into this project's own
+# environment. urllib3==1.24.1 has multiple long-documented CVEs
+# (PYSEC-2019-132, PYSEC-2019-133, PYSEC-2020-148, among others) and
+# exists purely as a scan TARGET for src/security/dependency_scan.py's
+# gate test. See docs/phase6_security_gate_v2_spec.md Part B.
+urllib3==1.24.1
