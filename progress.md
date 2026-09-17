@@ -81,7 +81,7 @@ never rewritten into the original tagged commit.
 | **Phase 3 — Pipeline Automation (Airflow)** | ✅ Complete — gate passed (see below) |
 | **Phase 4 — Deployment Service (FastAPI + Docker)** | ✅ Complete — gate passed for everything testable in this sandbox; Docker build/run accepted as a known, documented unverified risk (user decision, see below) rather than independently confirmed |
 | **Phase 5 — Security Gate v1 (Data & Model Integrity)** | ✅ Complete — gate passed (see below) |
-| Phase 6 — Security Gate v2 (Adversarial + Dependency) | Not started |
+| **Phase 6 — Security Gate v2 (Adversarial + Dependency)** | ✅ Complete — gate passed (see below) |
 | Phase 7 — Security Scoring & Gate Decision Logic | Not started |
 | Phase 8 — Governance Layer (RBAC + Audit Log) | Not started |
 | Phase 9 — Transparency Layer (Dashboard, Model Cards, SHAP) | Not started |
@@ -785,11 +785,136 @@ scripts/
 Outside the repo (documented, not hidden — see "What was built" above):
 `~/mlshield-signing-key/private_key.pem`.
 
-### Next: Phase 6 — Security Gate v2 (Adversarial Testing & Dependency Scan)
+---
 
-Add one named adversarial-robustness test (e.g. FGSM/PGD via a library
-like IBM's Adversarial Robustness Toolbox) and dependency scanning with
-SBOM output (SPDX or CycloneDX). Gate: the adversarial test reliably
-reproduces a measurable, repeatable accuracy drop; the dependency scanner
-catches a deliberately seeded vulnerable package; the SBOM is schema-valid.
-Not started yet — waiting on Phase 5 sign-off.
+## Phase 6 — Security Gate v2 (Adversarial Testing & Dependency Scan)
+
+**Git commit range:** `fe5551f..4b4d02b` (single commit `4b4d02b`, right
+after Phase 5's `fe5551f`).
+
+**Goal:** finish the Model Scan (robustness, alongside Phase 5's
+integrity check) and add the Dependency Scan — both against bars locked
+back in Phase 0.
+
+### What was built
+
+- **Adversarial robustness test**: the plan's example names FGSM/PGD via
+  IBM's Adversarial Robustness Toolbox (ART) — but Phase 1's model is a
+  `RandomForestClassifier`, which has no gradients, so a gradient-based
+  attack cannot be run against it directly. Rather than fake a gradient or
+  quietly swap in a different (differentiable) production model, this is
+  documented head-on in `docs/phase6_security_gate_v2_spec.md`, and a
+  named, published alternative is used instead: a **transfer-based
+  black-box attack via a differentiable surrogate** (Papernot et al. 2016,
+  "Practical Black-Box Attacks against Machine Learning"). A
+  `LogisticRegression` surrogate is trained on the same preprocessed
+  feature space, ART's `FastGradientMethod` (single-step FGSM) attacks
+  the surrogate, and the resulting perturbations are transferred to and
+  evaluated against the real RandomForest
+  (`src/security/adversarial_test.py`).
+  - **Attack surface restricted to the 15 documented `[0,1]` rate
+    features** via an explicit ART `mask` — everything else (one-hot
+    categoricals, integer counts, binary flags) held fixed, both because
+    a fractional perturbation on those is meaningless/unrealistic and
+    because it keeps every generated adversarial example a valid,
+    schema-conformant request against the Phase 4 API contract.
+  - `epsilon = 0.05` (L∞), evaluated on 100 fixed, correctly-classified
+    `KDDTest+.txt` points. `max_allowed_degradation = 0.30` — the same
+    number `docs/security_gate_formula.md` floated as its own
+    illustrative example in Phase 0, adopted here rather than picked
+    after seeing results.
+  - **Result**: `clean_accuracy = 1.0000`, `adversarial_accuracy = 0.9900`,
+    `degradation = 0.01` — well inside the 0.30 bar — and confirmed
+    **bit-identical across repeated runs**.
+- **Dependency scan + SBOM** (`src/security/dependency_scan.py`):
+  `pip-audit` against the OSV.dev vulnerability database, CycloneDX SBOM
+  generation via `cyclonedx-py` with built-in schema validation plus an
+  independent structural check on top of it. A fixture requirements file
+  (`tests/fixtures/vulnerable_requirements.txt`, pinning `urllib3==1.24.1`
+  — never installed into this project's own environment) confirms
+  detection works against a real, multiply-documented CVE.
+- **Real scan of this project's own dependencies, recorded honestly, not
+  swept under the rug**: `pip-audit` against the actual `requirements.txt`
+  found **2 known vulnerabilities in `diskcache` 5.6.3** (pulled in
+  transitively via `dvc-data`; no fix version available yet in the
+  advisory data). This is explicitly *not* the Phase 6 gate criterion
+  (see spec), but leaving it undocumented would undercut the whole
+  point of running a real scanner instead of a token one.
+- 20 tests total in `tests/security/` (13 carried over from Phase 5 + 7
+  new this phase), all passing.
+
+### A bug the sanity test caught (worth recording, not hiding)
+
+First implementation passed the accuracy-degradation bar but failed a
+sanity check asserting no more than the 15 documented rate-feature
+dimensions had actually changed — it found **23**. Root cause: the ART
+`SklearnClassifier` was constructed with `clip_values=(0.0, 1.0)`, which
+ART applies **globally, to every dimension** during attack generation —
+but only the 15 rate features are actually bounded to `[0,1]`;
+`src_bytes`/`duration`/counts are not (e.g. `src_bytes` legitimately
+ranges into the tens of thousands). That blanket clip was silently
+clamping those large legitimate values down to `1.0`, producing huge
+artifactual "perturbations" on features the mask was supposed to leave
+completely untouched — a real correctness bug, not a flaky test. Fixed by
+dropping the classifier's global `clip_values` entirely and clipping only
+the actual rate-feature dimensions afterward. Re-ran and confirmed exactly
+15 dimensions perturbed, matching the mask by construction. This is
+exactly why the spec required an explicit sanity check on the attack
+surface rather than trusting the mask parameter alone.
+
+### Validation gate result
+
+Run: `bash scripts/validate_phase6.sh` (slow — trains the surrogate
+`LogisticRegression` multiple times across the test suite; expect ~9
+minutes)
+
+```
+=== Phase 6 Validation Gate ===
+
+[1/2] Adversarial robustness test
+... 3 passed, 5 warnings in 514.03s (0:08:34)
+  Adversarial test suite passed (bar met, reproducible, attack surface confined)
+
+[2/2] Dependency scan + SBOM test suite
+tests/security/test_dependency_scan.py::test_seeded_vulnerability_is_caught PASSED
+tests/security/test_dependency_scan.py::test_seeded_vulnerability_is_caught_reliably PASSED
+tests/security/test_dependency_scan.py::test_sbom_generation_and_structure PASSED
+tests/security/test_dependency_scan.py::test_sbom_covers_declared_packages PASSED
+============================== 4 passed in 20.92s ==============================
+  Dependency scan / SBOM suite passed
+
+=== PHASE 6 GATE: PASSED ===
+```
+
+(The `lbfgs failed to converge` warning during surrogate training is
+benign and expected — the surrogate only needs to approximate the real
+model's decision boundary well enough for perturbations to transfer, not
+converge to a production-quality fit on unscaled features. Confirmed the
+non-convergence itself is deterministic: identical warning, identical
+results, across repeated runs.)
+
+### Repo additions in this phase
+
+```
+docs/
+  phase6_security_gate_v2_spec.md
+src/
+  security/{adversarial_test,dependency_scan}.py
+tests/
+  security/{test_adversarial,test_dependency_scan}.py
+  fixtures/vulnerable_requirements.txt
+data/processed/
+  phase6_adversarial_eval.json
+  sbom.json
+scripts/
+  validate_phase6.sh
+```
+
+### Next: Phase 7 — Security Scoring & Gate Decision Logic
+
+Implement the actual formula from Phase 0 (`docs/security_gate_formula.md`)
+combining the Phase 5/6 scan outputs into PASS/BORDERLINE/FAIL. Gate: the
+gate produces the documented, expected outcome for every one of ~15-20
+scripted synthetic scenarios covering clear-pass, clear-fail, and
+deliberately ambiguous boundary cases — no undocumented logic, no silent
+tie-breaking. Not started yet — waiting on Phase 6 sign-off.
