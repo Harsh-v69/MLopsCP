@@ -80,7 +80,7 @@ never rewritten into the original tagged commit.
 | **Phase 2 — MLOps Foundation (DVC + MLflow)** | ✅ Complete — gate passed (see below) |
 | **Phase 3 — Pipeline Automation (Airflow)** | ✅ Complete — gate passed (see below) |
 | **Phase 4 — Deployment Service (FastAPI + Docker)** | ✅ Complete — gate passed for everything testable in this sandbox; Docker build/run accepted as a known, documented unverified risk (user decision, see below) rather than independently confirmed |
-| Phase 5 — Security Gate v1 (Data & Model Integrity) | Not started |
+| **Phase 5 — Security Gate v1 (Data & Model Integrity)** | ✅ Complete — gate passed (see below) |
 | Phase 6 — Security Gate v2 (Adversarial + Dependency) | Not started |
 | Phase 7 — Security Scoring & Gate Decision Logic | Not started |
 | Phase 8 — Governance Layer (RBAC + Audit Log) | Not started |
@@ -683,11 +683,113 @@ scripts/
   validate_phase4.sh
 ```
 
-### Next: Phase 5 — Security Gate v1 (Data & Model Integrity)
+---
 
-Implement one named poisoning-detection method and model-artifact
-integrity verification via cryptographic signing. Gate: poisoning detector
-hits an agreed minimum recall at an agreed maximum false-positive rate on
-a controlled injection test; tampering check catches 100% of artificially
-modified artifacts in a 10-case test set. Not started yet — waiting on
-Phase 4 sign-off (with the Docker caveat above noted, not resolved).
+## Phase 5 — Security Gate v1 (Data & Model Integrity)
+
+**Git commit range:** `c330748..0d3c902` (single commit `0d3c902`, right
+after Phase 4's `c330748`).
+
+**Goal:** implement the first two real security controls the whole project
+is named for — a data-poisoning detector and cryptographic model-artifact
+integrity verification — and prove both meet targets that were locked
+*before this phase started* (the recall/FPR bar was written into
+`docs/security_gate_formula.md` back in Phase 0).
+
+### What was built
+
+- **Poisoning detector (Data Scan)**: k-Nearest-Neighbors label-consistency
+  filtering (`src/security/poisoning_detector.py`) — for each training
+  sample, checks whether its label agrees with the majority of its
+  feature-space neighbors; flags it as suspected-poisoned if not. Chosen
+  over an anomaly-detection alternative (e.g. Isolation Forest) because
+  label-flipping poisoning breaks *local* label consistency specifically,
+  which kNN agreement measures directly — and because it's a simple,
+  auditable rule, not another opaque model sitting in front of the one
+  being protected (matters for the SDG 16 transparency goal this whole
+  project is built around).
+  - Method, parameters (`k=15`, `agreement_threshold=0.5`,
+    `n=8000`-row fixed subsample), and the injection test protocol are all
+    locked in `docs/phase5_security_gate_v1_spec.md`, written before the
+    detector code.
+  - **Calibration result**: the locked parameters met the bar on the
+    *first* run, no post-hoc tuning — a controlled 10%-label-flip
+    injection test measured **recall=0.9663, FPR=0.0325** against
+    **recall≥0.80, FPR≤0.10** (the target Phase 0 committed to before any
+    detector existed). Worth stating plainly: this means the spec's
+    locked numbers weren't chosen to be easy — they had real margin.
+- **Model artifact integrity (Model Scan)**: Ed25519 cryptographic signing
+  (`src/security/model_integrity.py`, `sign_model.py`, `verify_model.py`)
+  — not a bare content hash. A hash only proves a file wasn't
+  *accidentally* corrupted; signing proves *authorized origin*, which is
+  what `docs/security_gate_formula.md`'s hard fail-closed override on this
+  check actually depends on. Signs the SHA-256 digest of
+  `models/baseline_model.joblib`.
+  - Private key generated once, kept **outside the repo**
+    (`~/mlshield-signing-key/private_key.pem`) — a documented MVP
+    stand-in for a real KMS/HSM boundary (same treatment as the local DVC
+    remote from Phase 2). Public key **is** committed
+    (`security/signing_public_key.pem`) — verification must work for
+    anyone with this repo, without the private key.
+  - The signature itself (`models/baseline_model.joblib.sig`) is also
+    committed — small, human-readable JSON, same treatment as
+    `phase1_metrics.json`.
+- **10-case tampering test** (`tests/security/test_model_integrity.py`):
+  byte flips at five different offsets, truncation (two ways), appending
+  extra bytes, zeroing a chunk, prepending bytes — **all 10 correctly fail
+  verification**, and the legitimate, unmodified artifact correctly
+  passes. 13 tests total in `tests/security/` (10 tamper cases + the
+  legitimate-artifact check + the explicit "count == 10" check + the
+  poisoning-detector gate test), all passing.
+
+### Validation gate result
+
+Run: `bash scripts/validate_phase5.sh`
+
+```
+=== Phase 5 Validation Gate ===
+
+[1/3] Poisoning detector injection test
+Recall:              0.9663 (bar: >= 0.8)
+False positive rate: 0.0325 (bar: <= 0.1)
+PASS
+
+[2/3] Model artifact signing + tampering test suite
+SIGN OK: models/baseline_model.joblib signed
+VERIFY OK: models/baseline_model.joblib matches its signature
+  10/10 tampering test cases passed (all correctly rejected)
+
+[3/3] Full security test suite (both parts together)
+============================== 13 passed in 5.64s ==============================
+
+=== PHASE 5 GATE: PASSED ===
+```
+
+### Repo additions in this phase
+
+```
+docs/
+  phase5_security_gate_v1_spec.md
+src/
+  security/{poisoning_detector,evaluate_poisoning_detector,model_integrity,sign_model,verify_model}.py
+tests/
+  security/{test_model_integrity,test_poisoning_detector}.py
+security/
+  signing_public_key.pem          (committed — verification needs this)
+models/
+  baseline_model.joblib.sig       (committed — small, human-readable)
+scripts/
+  validate_phase5.sh
+```
+
+Outside the repo (documented, not hidden — see "What was built" above):
+`~/mlshield-signing-key/private_key.pem`.
+
+### Next: Phase 6 — Security Gate v2 (Adversarial Testing & Dependency Scan)
+
+Add one named adversarial-robustness test (e.g. FGSM/PGD via a library
+like IBM's Adversarial Robustness Toolbox) and dependency scanning with
+SBOM output (SPDX or CycloneDX). Gate: the adversarial test reliably
+reproduces a measurable, repeatable accuracy drop; the dependency scanner
+catches a deliberately seeded vulnerable package; the SBOM is schema-valid.
+Not started yet — waiting on Phase 5 sign-off.
