@@ -62,18 +62,51 @@ robustness_component =
 
 ### 1.3 `dependency_score` (Supply Chain)
 
+> **Amended in Phase 7** (see `progress.md` Phase 7 section for the full
+> reasoning) — the original severity-tiered formula below this note is
+> kept for the record, struck through, per this file's own §5 change
+> control ("be made via a normal commit, noted in progress.md"). It was
+> never implemented against real data.
+>
+> ~~```~~
+> ~~dependency_score = 100~~
+> ~~  - 100 if any CRITICAL-severity vulnerability found~~
+> ~~  - 25 * count(HIGH-severity vulnerabilities, capped at 4)~~
+> ~~  - 5  * count(MEDIUM-severity vulnerabilities, capped at 10)~~
+> ~~  (floor at 0)~~
+> ~~```~~
+>
+> **Reason for the change**: Phase 6 locked `pip-audit` (against OSV.dev,
+> via PyPI's own JSON API) as the dependency scanner. Neither pip-audit's
+> output, nor PyPI's vulnerability API, nor OSV.dev's own API (blocked by
+> this environment's network policy — confirmed via a direct request, not
+> assumed) provide a CRITICAL/HIGH/MEDIUM severity classification for
+> findings — OSV-sourced records here carry an id, aliases (CVE/GHSA),
+> and a description, but no CVSS score or severity tier. The severity
+> tiers this formula originally assumed are not obtainable data in this
+> project's actual toolchain, in this environment. Rather than fabricate
+> severity labels (which would make the score look more rigorous than it
+> is — directly against this project's own SDG 16 transparency goal), the
+> formula is revised to use what the scanner actually and reliably
+> provides: a vulnerability **count**.
+
 ```
-dependency_score = 100
-  - 100 if any CRITICAL-severity vulnerability found
-  - 25 * count(HIGH-severity vulnerabilities, capped at 4)
-  - 5  * count(MEDIUM-severity vulnerabilities, capped at 10)
-  (floor at 0)
+dependency_score = 100 - 10 * min(vulnerability_count, 10)
+  (floor at 0 — i.e. 10 or more findings scores 0)
 ```
 
-- Severities come from the dependency scanner's own classification (Trivy /
-  pip-audit / OWASP Dependency-Check — tool selected in Phase 6).
-- A missing/unparseable SBOM is treated as a scan failure (sub-score = 0),
-  not skipped.
+- `vulnerability_count` = total number of vulnerability findings pip-audit
+  reports across all scanned packages (not deduplicated by CVE — the same
+  underlying CVE reported against two different vulnerable packages counts
+  twice, since both are real, independent supply-chain exposures).
+- A missing/unparseable SBOM, or a scan that fails to run at all, is
+  treated as a scan failure (sub-score = 0), not skipped — unchanged from
+  the original formula's fail-closed rule.
+- If a future environment/toolchain change makes real severity data
+  available (e.g. running outside this network-restricted sandbox, or
+  adding a scanner/API with CVSS support), the severity-tiered formula
+  above can be reinstated — that would itself be a Phase-7-style
+  documented amendment, not a silent revert.
 
 ## 2. Composite Security Score
 

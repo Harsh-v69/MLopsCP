@@ -16,18 +16,27 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 def run_pip_audit(requirements_path: Path) -> dict:
     """Runs pip-audit against a requirements file, returns parsed JSON
-    findings. Does not raise on found vulnerabilities (pip-audit exits
-    non-zero when it finds any) - that's the expected, useful case."""
+    findings. Does NOT raise on found vulnerabilities (pip-audit exits
+    non-zero when it finds any - that's the expected, useful case, distinct
+    from a failed scan). DOES raise if the scan itself couldn't run at all
+    (e.g. a missing/invalid requirements file) - a successful pip-audit run
+    always produces valid JSON on stdout, whether it found 0 or N
+    vulnerabilities, so unparseable stdout means the scan never actually
+    ran. This distinction matters: gate.py's fail-closed logic depends on
+    a failed scan raising, not silently reporting 0 findings (caught by
+    test_fail_closed_dependency_scan_raises during Phase 7 development -
+    see progress.md)."""
     result = subprocess.run(
         ["pip-audit", "-r", str(requirements_path), "--format", "json"],
         capture_output=True,
         text=True,
     )
     try:
-        findings = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        findings = {"error": "could not parse pip-audit output", "stdout": result.stdout, "stderr": result.stderr}
-    return findings
+        return json.loads(result.stdout)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(
+            f"pip-audit did not produce parseable output (exit code {result.returncode}): {result.stderr.strip()}"
+        ) from e
 
 
 def count_vulnerabilities(pip_audit_result: dict) -> int:
