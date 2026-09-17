@@ -82,7 +82,7 @@ never rewritten into the original tagged commit.
 | **Phase 4 — Deployment Service (FastAPI + Docker)** | ✅ Complete — gate passed for everything testable in this sandbox; Docker build/run accepted as a known, documented unverified risk (user decision, see below) rather than independently confirmed |
 | **Phase 5 — Security Gate v1 (Data & Model Integrity)** | ✅ Complete — gate passed (see below) |
 | **Phase 6 — Security Gate v2 (Adversarial + Dependency)** | ✅ Complete — gate passed (see below) |
-| Phase 7 — Security Scoring & Gate Decision Logic | Not started |
+| **Phase 7 — Security Scoring & Gate Decision Logic** | ✅ Complete — gate passed (see below) |
 | Phase 8 — Governance Layer (RBAC + Audit Log) | Not started |
 | Phase 9 — Transparency Layer (Dashboard, Model Cards, SHAP) | Not started |
 | Phase 10 — Attack Laboratory & Recovery Cycle | Not started |
@@ -910,11 +910,148 @@ scripts/
   validate_phase6.sh
 ```
 
-### Next: Phase 7 — Security Scoring & Gate Decision Logic
+---
 
-Implement the actual formula from Phase 0 (`docs/security_gate_formula.md`)
-combining the Phase 5/6 scan outputs into PASS/BORDERLINE/FAIL. Gate: the
-gate produces the documented, expected outcome for every one of ~15-20
-scripted synthetic scenarios covering clear-pass, clear-fail, and
-deliberately ambiguous boundary cases — no undocumented logic, no silent
-tie-breaking. Not started yet — waiting on Phase 6 sign-off.
+## Phase 7 — Security Scoring & Gate Decision Logic
+
+**Git commit range:** `d1fe9e5..aa24f77` (single commit `aa24f77`, right
+after Phase 6's `d1fe9e5`).
+
+**Goal:** turn `docs/security_gate_formula.md` (locked in Phase 0, before
+any detector existed) into real, tested code — the thing that actually
+reads Phase 5/6's scan outputs and decides PASS/BORDERLINE/FAIL.
+
+### A formula amendment, made honestly, via the process the formula itself set up
+
+Before writing gate code, discovered that the *original* `dependency_score`
+formula (§1.3) assumed CRITICAL/HIGH/MEDIUM severity classifications —
+data that turns out not to be available anywhere in this project's actual
+toolchain: `pip-audit`'s JSON output has no severity field, PyPI's own
+vulnerability API (which pip-audit's data ultimately traces to) doesn't
+either, and OSV.dev's own API — which might have it — returned a
+**confirmed 403** from this environment's network policy (checked
+directly, not assumed; same class of restriction as the Docker Hub block
+from Phase 0).
+
+Rather than fabricate severity labels to keep the original formula's
+shape — which would make the score look more rigorous than the data
+actually supports, directly undercutting this project's own SDG 16
+transparency goal — the formula was amended to a count-based version:
+`dependency_score = 100 - 10 * min(vulnerability_count, 10)`. This was
+done as `docs/security_gate_formula.md` itself requires for any formula
+change (§5 "Change control"): a normal commit to that file, with the
+struck-through original kept for the record, and the reason logged here.
+See that file's §1.3 for the full amendment text.
+
+### What was built
+
+- **`src/security/gate.py`**: pure functions for every formula piece
+  (`compute_data_score`, `compute_model_score`, `compute_dependency_score`,
+  `compute_security_score`, `decide`) with no file I/O or network calls —
+  and one integration function, `run_gate()`, that wires them to real
+  data:
+  - `data_score` and the robustness half of `model_score` read Phase 5/6's
+    **stored** evaluation results (`phase5_poisoning_eval.json`,
+    `phase6_adversarial_eval.json`) — these are offline evaluations of a
+    fixed detector/model against a fixed injection test, not something
+    that changes run to run.
+  - The integrity half of `model_score` and all of `dependency_score` are
+    checked **live** — integrity because that's exactly the kind of thing
+    that must be verified at gate-evaluation time, and dependency risk
+    because new CVEs get published against unchanged pinned versions
+    without this project changing at all.
+  - A missing/unreadable stored result, or a live check that fails, is
+    caught and treated as that sub-score = 0 — the fail-closed rule
+    `docs/security_gate_formula.md` §1 already committed to.
+- **21 scripted test scenarios**, locked with exact expected values in
+  `docs/phase7_gate_decision_spec.md` — computed independently in Python
+  *before* `gate.py` was written, not read off a first run and copied in.
+  Covers: a perfect-input pass, this project's actual real numbers (cross-
+  checked two ways — pure functions AND a live `run_gate()` call, so the
+  wiring itself is verified, not just the arithmetic), a clear fail, every
+  `decide()` boundary (`79.999` vs `80.0`, `49.999` vs `50.0`, etc.), and —
+  the one that actually matters most — **the integrity hard-override
+  proven, not just asserted**: a scenario where the arithmetic score reads
+  exactly `80.0` (would be PASS) but a failed integrity check still forces
+  `FAIL`.
+- One genuinely interesting, documented-not-hidden finding from the
+  scenario work: a detector that *just barely* clears Phase 5's own pass
+  bar (`recall=0.80`, `fpr=0.10` exactly) scores only **48/100** on
+  `data_score` — because the formula measures distance from a *perfect*
+  detector, not distance from Phase 5's minimum bar. Not a bug; written
+  into the spec explicitly so it isn't mistaken for one later.
+
+### Two real bugs the scenario suite caught (recorded, not hidden)
+
+1. **Wrong-direction fail-closed logic.** The first draft of `run_gate()`'s
+   missing-robustness-data branch was going to fall back to
+   `compute_model_score(integrity_ok, clean_accuracy=0.0, adversarial_accuracy=1.0)`
+   as a "safe default." That computes as **negative degradation**
+   (`0.0 - 1.0 = -1.0`) and awards **full robustness credit** — the exact
+   opposite of fail-closed. Fixed to set `robustness_component = 0`
+   directly rather than trying to fake it through the normal formula path.
+2. **A failed scan that reported success.** `run_pip_audit()` originally
+   caught `JSONDecodeError` (from empty stdout, e.g. when pip-audit is
+   given a missing requirements file) and returned a placeholder dict with
+   no `"dependencies"` key. `count_vulnerabilities()` then read that as
+   **0 vulnerabilities found** — indistinguishable from "scanned
+   successfully, nothing wrong." `test_fail_closed_dependency_scan_raises`
+   caught this directly (asserted `dependency_score == 0.0` on a broken
+   scan, got `100`). Fixed by making `run_pip_audit()` raise when its
+   output isn't parseable, so "the scan couldn't run" and "the scan ran
+   and found nothing" are no longer the same code path.
+
+### Validation gate result
+
+Run: `bash scripts/validate_phase7.sh`
+
+```
+=== Phase 7 Validation Gate ===
+
+[1/2] Scripted scenario test suite
+... 22 passed in 28.74s
+  All scripted scenarios produced their exact documented expected value
+
+[2/2] Live gate run against real project state
+data_score:        84.9750
+model_score:        98.3333
+dependency_score:   80.0000
+security_score:     89.0746
+integrity_component: 100.0
+DECISION: PASS
+  Live run_gate() completed without error
+
+=== PHASE 7 GATE: PASSED ===
+```
+
+This project's own model, as it stands today, would **PASS** the
+Security Gate — auto-deployable, no human approval required, per
+`docs/security_gate_formula.md`'s own decision table. That's the first
+time this whole pipeline's central claim ("the gate makes a real,
+checkable decision") has been exercised end to end against real project
+state rather than described.
+
+### Repo additions in this phase
+
+```
+docs/
+  phase7_gate_decision_spec.md
+  security_gate_formula.md          (amended §1.3, not replaced)
+src/
+  security/gate.py
+tests/
+  security/test_gate_decision.py
+scripts/
+  validate_phase7.sh
+```
+
+### Next: Phase 8 — Governance Layer (RBAC + Tamper-Evident Audit Log)
+
+JWT-based RBAC for the four roles (Data Engineer, ML Engineer, Security
+Reviewer, Approver); an append-only, hash-chained audit log; a
+human-approval workflow for BORDERLINE cases; periodic external anchoring
+of the log's head hash. Gate: 100% of unauthorized-action attempts
+blocked in a test matrix; 100% of tamper attempts on the audit log
+detected; every BORDERLINE case in testing produces a complete,
+attributable approval record. Not started yet — waiting on Phase 7
+sign-off.
