@@ -1,0 +1,23 @@
+# Airflow lives in its OWN virtualenv (.venv-airflow/), separate from the
+# main ML environment (requirements.txt / .venv/). Do not merge these.
+#
+# Why: apache-airflow ships an official, strict dependency constraints file
+# that pins shared libraries (cryptography, protobuf, typing-extensions,
+# click, etc.) to specific versions. Installing it into the same venv as
+# mlflow/dvc/scikit-learn downgraded those shared libraries and broke both
+# dvc and mlflow imports (see progress.md Phase 3 notes) - confirmed by
+# actually hitting the ImportError, not a theoretical concern. Two venvs
+# avoids the conflict entirely and mirrors a realistic production setup
+# anyway (an orchestrator and the ML code it calls are commonly separate
+# services/images with independent dependency trees).
+#
+# Setup:
+#   python3 -m venv .venv-airflow
+#   source .venv-airflow/bin/activate
+#   pip install "apache-airflow==2.10.5" \
+#     --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-2.10.5/constraints-3.11.txt"
+#
+# The DAG (airflow/dags/mlshield_baseline_dag.py) shells out to the ML
+# venv's python (.venv/bin/python) for every pipeline step, so Airflow
+# itself never needs to import sklearn/mlflow/dvc.
+apache-airflow==2.10.5

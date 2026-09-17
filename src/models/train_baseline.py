@@ -141,6 +141,17 @@ def main():
         mlflow.sklearn.log_model(
             pipeline,
             name="model",
+            # Force the classic pickle-based format rather than mlflow's
+            # newer skops default. skops' load-time audit blocks
+            # sklearn.tree._tree.Tree by default (a real protection against
+            # loading an untrusted third-party model file) - but this
+            # artifact's integrity is already covered by our own DVC content
+            # hash (see progress.md Phase 2), so that audit is solving a
+            # threat model that doesn't apply here, at the cost of the
+            # artifact format being sensitive to whatever skops version
+            # happens to be installed (skops isn't pinned in requirements.txt
+            # since we don't import it directly). Pin the format instead.
+            serialization_format="cloudpickle",
             registered_model_name=MLFLOW_REGISTERED_MODEL_NAME,
         )
         results["mlflow_run_id"] = run.info.run_id
