@@ -13,3 +13,4 @@ cryptography==50.0.1
 adversarial-robustness-toolbox==1.20.1
 pip_audit==2.10.1
 cyclonedx-bom==7.4.0
+PyJWT==2.14.0
