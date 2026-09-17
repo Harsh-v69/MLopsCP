@@ -83,7 +83,7 @@ never rewritten into the original tagged commit.
 | **Phase 5 — Security Gate v1 (Data & Model Integrity)** | ✅ Complete — gate passed (see below) |
 | **Phase 6 — Security Gate v2 (Adversarial + Dependency)** | ✅ Complete — gate passed (see below) |
 | **Phase 7 — Security Scoring & Gate Decision Logic** | ✅ Complete — gate passed (see below) |
-| Phase 8 — Governance Layer (RBAC + Audit Log) | Not started |
+| **Phase 8 — Governance Layer (RBAC + Audit Log)** | ✅ Complete — gate passed (see below) |
 | Phase 9 — Transparency Layer (Dashboard, Model Cards, SHAP) | Not started |
 | Phase 10 — Attack Laboratory & Recovery Cycle | Not started |
 | Phase 11 — Final End-to-End Validation | Not started |
@@ -1045,13 +1045,122 @@ scripts/
   validate_phase7.sh
 ```
 
-### Next: Phase 8 — Governance Layer (RBAC + Tamper-Evident Audit Log)
+---
 
-JWT-based RBAC for the four roles (Data Engineer, ML Engineer, Security
-Reviewer, Approver); an append-only, hash-chained audit log; a
-human-approval workflow for BORDERLINE cases; periodic external anchoring
-of the log's head hash. Gate: 100% of unauthorized-action attempts
-blocked in a test matrix; 100% of tamper attempts on the audit log
-detected; every BORDERLINE case in testing produces a complete,
-attributable approval record. Not started yet — waiting on Phase 7
-sign-off.
+## Phase 8 — Governance Layer (RBAC + Tamper-Evident Audit Log)
+
+**Git commit range:** `f86e6a3..59c4e63` (single commit `59c4e63`, right
+after Phase 7's `f86e6a3`).
+
+**Goal:** turn the SDG 16 "accountable, transparent institutions" claim
+this whole project is built around into something checkable — role-gated
+actions, and an audit trail that can prove it hasn't been quietly edited,
+not just one that says it hasn't.
+
+### What was built
+
+- **RBAC** (`src/governance/auth.py`): JWT (HS256), four roles locked to
+  the project plan's tech-stack list — **Data Engineer, ML Engineer,
+  Security Reviewer, Approver** (the plan names a slightly different list
+  in its "suggested roles" section; this one was already committed to in
+  Phase 7's own "Next" note before this phase's spec was written, so it's
+  the one used). No implicit hierarchy — no role can do everything;
+  `test_no_role_has_all_permissions` checks that directly. The signing
+  secret lives outside the repo
+  (`~/mlshield-governance/jwt_secret.key`) — same documented stand-in
+  pattern as Phase 5's private signing key, for the same reason (no real
+  KMS/IdP infrastructure in this environment; a real deployment would
+  issue tokens from an external OAuth/OIDC provider instead of a shared
+  local HMAC secret).
+- **Hash-chained audit log** (`src/governance/audit_log.py`): append-only
+  JSONL, each entry's hash covers its own content *and* the previous
+  entry's hash (genesis constant for entry 0, not a blank/null
+  `prev_hash` an attacker could forge as "the start"). `verify_chain()`
+  catches an in-place edit or a deleted entry.
+- **External anchoring — the part that actually matters**: a hash chain
+  alone only catches *inconsistent* tampering. An attacker with write
+  access to the whole log file can edit an old entry **and** recompute
+  every hash after it, producing a chain that still verifies clean.
+  `anchor_head()` periodically records the log's current head hash
+  outside the repo (`~/mlshield-audit-anchors/anchors.jsonl` — same
+  documented-boundary pattern again), and `verify_against_anchors()`
+  replays the log up to each anchor point and confirms the replayed hash
+  still matches what was anchored *at that time*. This is proven
+  directly, not just asserted: a test tampers with a pre-anchor entry and
+  fully recomputes the chain, confirms `verify_chain()` reports clean
+  (demonstrating the chain check's real limit), then confirms
+  `verify_against_anchors()` still catches it.
+- **BORDERLINE approval workflow** (`src/governance/approval.py`): wires
+  Phase 7's `run_gate()` into RBAC and the audit log. PASS/FAIL are
+  auto-logged with no approval step possible. BORDERLINE requires a valid
+  `APPROVER`-role token **and** a non-empty justification — an approval
+  with no stated reason isn't a real approval. A denied attempt (wrong
+  role) is itself written to the audit log, not silently dropped.
+- **67 tests** in `tests/governance/`: the full RBAC matrix — **4 roles ×
+  11 actions = 44 combinations**, every single one asserted against the
+  permission matrix exactly (not sampled) — plus expired/forged/malformed
+  token denial, in-place tamper detection, deleted-entry detection, the
+  anchor-bypass proof above, log-truncation/rollback detection, and the
+  full approval workflow (authorized, unauthorized-but-logged,
+  empty-justification-rejected, PASS/FAIL have no approval step at all).
+
+### A real, committed audit log — not just a passing test suite
+
+`scripts/validate_phase8.sh` doesn't stop at the test suite: it runs a
+live demonstration against the project's actual, persisted, git-committed
+log (`data/audit/audit_log.jsonl`) — logging this project's real current
+Phase 7 gate result (PASS), then walking a synthetic BORDERLINE case
+through a denied unauthorized attempt and a real authorized approval,
+anchoring the result, and verifying both the chain and the anchor clean.
+That log's four real entries are committed as evidence, the same
+"small, human-readable, worth keeping" treatment as `phase1_metrics.json`
+and the Phase 5/6 eval JSONs.
+
+### Validation gate result
+
+Run: `bash scripts/validate_phase8.sh`
+
+```
+=== Phase 8 Validation Gate ===
+
+[1/2] Full governance test suite
+======================== 67 passed, 1 warning in 0.11s =========================
+  Full governance suite passed (67 tests: 44 RBAC matrix + fail-closed cases + tamper/anchor + approval workflow)
+
+[2/2] Live demonstration against a real, persisted audit log
+Logged real live gate result: PASS (score=89.07)
+Unauthorized approval attempt: recorded=False (role DATA_ENGINEER is not permitted to approve_deployment)
+Authorized approval: recorded=True, actor=demo-approver
+Anchored head hash at seq=4 to /root/mlshield-audit-anchors/anchors.jsonl
+verify_chain: valid=True, n_entries=4
+verify_against_anchors: valid=True, n_anchors_checked=1
+  Live demonstration completed and verified clean
+
+=== PHASE 8 GATE: PASSED ===
+```
+
+### Repo additions in this phase
+
+```
+docs/
+  phase8_governance_spec.md
+src/
+  governance/{auth,audit_log,approval}.py
+tests/
+  governance/{test_rbac,test_audit_log,test_approval_workflow}.py
+data/audit/
+  audit_log.jsonl                 (real, committed evidence - 4 genuine entries)
+scripts/
+  validate_phase8.sh
+```
+
+Outside the repo (documented, not hidden): `~/mlshield-governance/jwt_secret.key`,
+`~/mlshield-audit-anchors/anchors.jsonl`.
+
+### Next: Phase 9 — Transparency Layer (Dashboard, Model Cards, SHAP)
+
+The React/Next.js dashboard, auto-generated Model Cards per release, and
+SHAP-based prediction explanations. Gate: for at least 3 real pipeline
+runs (pass/fail/borderline), the dashboard's displayed state exactly
+matches the backend's ground truth — no stale or fabricated-looking data.
+Not started yet — waiting on Phase 8 sign-off.
