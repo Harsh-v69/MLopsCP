@@ -1,7 +1,7 @@
 version: "3.9"
 
-# Phase 0 skeleton — one service for now (dataset load/split smoke test).
-# Grows in later phases: mlflow, airflow, postgres, fastapi, dashboard, etc.
+# Grows phase by phase — see progress.md for what each service is and
+# which phase added it. Airflow/postgres/dashboard land in later phases.
 services:
   data-loader:
     build:
@@ -9,3 +9,10 @@ services:
       dockerfile: docker/Dockerfile
     volumes:
       - ./data:/app/data
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    ports:
+      - "8000:8000"
