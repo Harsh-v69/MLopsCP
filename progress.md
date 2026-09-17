@@ -78,7 +78,7 @@ never rewritten into the original tagged commit.
 | **Phase 0 — Foundation & Scope Lock** | ✅ Complete — gate passed (see below) |
 | **Phase 1 — ML Baseline** | ✅ Complete — gate passed (see below) |
 | **Phase 2 — MLOps Foundation (DVC + MLflow)** | ✅ Complete — gate passed (see below) |
-| Phase 3 — Pipeline Automation (Airflow) | Not started |
+| **Phase 3 — Pipeline Automation (Airflow)** | ✅ Complete — gate passed (see below) |
 | Phase 4 — Deployment Service (FastAPI + Docker) | Not started |
 | Phase 5 — Security Gate v1 (Data & Model Integrity) | Not started |
 | Phase 6 — Security Gate v2 (Adversarial + Dependency) | Not started |
@@ -404,11 +404,152 @@ scripts/
   validate_phase2.sh
 ```
 
-### Next: Phase 3 — Pipeline Automation (Airflow)
+---
 
-Build an Airflow DAG automating ingest → validate → train → evaluate →
-register, replacing manual script execution. Gate: the DAG completes
-unattended from a cold start and produces a registered model identical to
-Phase 2's manual run; a deliberately-broken run correctly halts the
-pipeline instead of registering a bad model. Not started yet — waiting on
-Phase 2 sign-off.
+## Phase 3 — Pipeline Automation (Airflow)
+
+**Git commit range:** `d684bb3..2e5fde1` (single commit `2e5fde1`, right
+after Phase 2's `d684bb3`).
+
+**Goal:** replace manual step-by-step script execution with an Airflow DAG
+(ingest → validate → train → evaluate → register), and prove two things:
+a cold-start unattended run reproduces Phase 2's model exactly, and a
+genuinely broken input run halts the pipeline before anything bad gets
+registered.
+
+### What was built
+
+- **Pipeline split into five discrete steps** (`src/pipeline/`), each a
+  standalone, independently-runnable script:
+  - `ingest.py` — copies the locked raw dataset into `data/staging/`
+    (nothing downstream touches `data/raw/` directly), checking source
+    files against Phase 0's locked SHA-256 hashes. Accepts an env-var
+    override (`MLSHIELD_INGEST_TRAIN_SOURCE`) so a corrupted file can be
+    substituted for testing without faking the check itself.
+  - `validate.py` — **real schema validation**, not a placeholder: exact
+    per-row column count (checked at the raw line level, independent of
+    pandas' own parsing leniency), `protocol_type`/`flag` value-domain
+    checks, label completeness, numeric-column sanity. This is what
+    actually catches bad input; it doesn't know or care why a file might
+    be bad.
+  - `train.py` — same model/logic as Phase 1's training script, reading
+    from staged data, logging params/metrics/model to MLflow — but
+    **not** registering the model. Registration is a separate, gated step.
+  - `evaluate.py` — checks the trained model's `KDDTest+` F1 against the
+    same locked bar as Phase 1 (≥0.75). Exits non-zero on failure.
+  - `register.py` — only reached if `evaluate` exits 0 (Airflow's task
+    dependency graph is what enforces this, not a convention); registers
+    the MLflow-logged model as a new version of `mlshield-baseline-rf`,
+    the same registry entry Phase 2 used manually.
+- **Airflow DAG**: `airflow/dags/mlshield_baseline_dag.py`, wiring
+  `ingest >> validate >> train >> evaluate >> register` as `BashOperator`
+  tasks, each shelling out to the ML virtualenv's Python interpreter.
+- **Airflow installed in its own virtualenv** (`.venv-airflow/`, separate
+  from `.venv/`) — see the environment note below for why this isn't
+  optional.
+- **Deliberate-failure test fixture**:
+  `tests/fixtures/corrupted_train_sample.txt` — a real copy of training
+  data with a genuinely malformed row (wrong column count) and an unknown
+  `protocol_type` value injected, not a simulated/faked failure.
+
+### A bug the pipeline caught (worth recording, not hiding)
+
+Wiring `train.py`'s MLflow logging (same call pattern as Phase 2's script)
+started failing with `skops.io.exceptions.UntrustedTypesFoundException`.
+Cause: `skops` (not pinned in `requirements.txt` since nothing imports it
+directly — it's a transitive dependency of mlflow's default sklearn
+serializer) resolved to a newer version between the Phase 2 and Phase 3
+venv rebuilds, and that version's load-time safety audit now blocks
+`sklearn.tree._tree.Tree` objects by default — a real protection against
+loading an untrusted third-party model file, but not a threat model that
+applies here (this artifact's integrity is already covered by our own DVC
+content hash). Fixed by explicitly pinning
+`serialization_format="cloudpickle"` on both `mlflow.sklearn.log_model`
+call sites (`src/models/train_baseline.py` and `src/pipeline/train.py`),
+so the artifact format no longer depends on whichever `skops` version
+happens to be installed.
+
+### Environment note: two virtualenvs, not one
+
+Installing `apache-airflow==2.10.5` (with its official constraints file)
+into the same venv as `dvc`/`mlflow` downgraded shared libraries
+(`cryptography`, `protobuf`, `typing-extensions`, `click`, `tzdata`, `cffi`)
+and broke `import dvc` / `import mlflow` with a concrete `ImportError` —
+confirmed by hitting it, not assumed. Fixed by giving Airflow its own
+virtualenv (`.venv-airflow/`, gitignored) and having every DAG task shell
+out to the ML venv's Python (`.venv/bin/python`) rather than importing ML
+code into Airflow's process. See `requirements-airflow.txt` for the
+install command. This also mirrors a realistic production setup: an
+orchestrator and the ML code it calls commonly live in separate
+services/images with independent dependency trees, not one shared
+environment.
+
+### Validation gate result
+
+Run: `bash scripts/validate_phase3.sh` (requires both `.venv/` and
+`.venv-airflow/` — see environment note above)
+
+```
+=== Phase 3 Validation Gate ===
+
+[1/3] Cold-start normal run
+  DAG run succeeded (exit 0)
+  register task succeeded
+  Model registry gained a new version (7 -> 8)
+  KDDTest+ F1=0.7653 (meets >=0.75 bar, matches Phase 1/2's locked threshold)
+
+[2/3] Deliberately-broken run (corrupted training data)
+  DAG run failed as expected (exit 1)
+  validate task failed, as expected
+  No downstream task (train/evaluate/register) ever started
+  Model registry version count unchanged (8) - no bad model registered
+
+[3/3] Repo scaffolding
+  airflow/dags/mlshield_baseline_dag.py present
+  src/pipeline/ingest.py present
+  src/pipeline/validate.py present
+  src/pipeline/train.py present
+  src/pipeline/evaluate.py present
+  src/pipeline/register.py present
+
+=== PHASE 3 GATE: PASSED ===
+```
+
+Also confirmed directly (not just inferred from the gate): the
+pipeline-trained model artifact and its metrics are **byte-identical** to
+Phase 1/2's manually-trained ones (same sha256, same JSON). The automation
+reproduces the exact same result, not just "a similar" one. Also confirmed
+the gate script is idempotent — reran it twice in a row, registry version
+count advanced predictably each time (7→8, 8→9 on the run after), no
+state corruption between runs.
+
+### Repo additions in this phase
+
+```
+airflow/
+  dags/mlshield_baseline_dag.py
+requirements-airflow.txt             (separate venv setup instructions)
+src/
+  pipeline/{ingest,validate,train,evaluate,register}.py
+tests/
+  fixtures/corrupted_train_sample.txt
+scripts/
+  validate_phase3.sh
+```
+
+Gitignored (generated/ephemeral, regenerated by running the pipeline —
+see `.gitignore` for the specific reasoning per entry):
+`airflow_home/`, `.venv-airflow/`, `data/staging/`,
+`data/processed/phase3_run_info.json`, `data/processed/phase3_metrics.json`,
+`models/phase3_model.joblib`.
+
+### Next: Phase 4 — Deployment Service (FastAPI + Docker)
+
+Containerized inference API serving the registered model. Gate: deployed
+API's predictions match offline evaluation results within tolerance, the
+container starts cleanly from `docker run` with no manual steps, and
+invalid/malformed input is rejected with a proper error rather than
+crashing the service. Note: this phase will need Docker build/run
+verification, which this sandbox cannot do (see Phase 0 notes) — expect
+the same documented limitation to apply. Not started yet — waiting on
+Phase 3 sign-off.
