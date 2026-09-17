@@ -79,7 +79,7 @@ never rewritten into the original tagged commit.
 | **Phase 1 — ML Baseline** | ✅ Complete — gate passed (see below) |
 | **Phase 2 — MLOps Foundation (DVC + MLflow)** | ✅ Complete — gate passed (see below) |
 | **Phase 3 — Pipeline Automation (Airflow)** | ✅ Complete — gate passed (see below) |
-| **Phase 4 — Deployment Service (FastAPI + Docker)** | ⚠️ Gate passed for everything testable in this sandbox — **Docker build/run not independently verified** (see below) |
+| **Phase 4 — Deployment Service (FastAPI + Docker)** | ✅ Complete — gate passed for everything testable in this sandbox; Docker build/run accepted as a known, documented unverified risk (user decision, see below) rather than independently confirmed |
 | Phase 5 — Security Gate v1 (Data & Model Integrity) | Not started |
 | Phase 6 — Security Gate v2 (Adversarial + Dependency) | Not started |
 | Phase 7 — Security Scoring & Gate Decision Logic | Not started |
@@ -632,7 +632,14 @@ curl -X POST http://localhost:8000/predict -H "Content-Type: application/json" \
 
 Until that's run somewhere with real Docker Hub access and confirmed
 working, treat this phase as "code complete, container unverified" rather
-than fully done — the status row above reflects that on purpose.
+than fully done.
+
+**Decision recorded:** asked the user explicitly how to handle this gap
+(same choice as Phase 0's Docker limitation). They chose to accept it as a
+known, documented risk and proceed rather than pause the whole project on
+it — not something assumed silently. If the build/run is later verified
+(or found to fail) elsewhere, update this section rather than treating the
+gate as re-opened from scratch.
 
 ### Validation gate result
 
