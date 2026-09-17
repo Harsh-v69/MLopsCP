@@ -79,7 +79,7 @@ never rewritten into the original tagged commit.
 | **Phase 1 — ML Baseline** | ✅ Complete — gate passed (see below) |
 | **Phase 2 — MLOps Foundation (DVC + MLflow)** | ✅ Complete — gate passed (see below) |
 | **Phase 3 — Pipeline Automation (Airflow)** | ✅ Complete — gate passed (see below) |
-| Phase 4 — Deployment Service (FastAPI + Docker) | Not started |
+| **Phase 4 — Deployment Service (FastAPI + Docker)** | ⚠️ Gate passed for everything testable in this sandbox — **Docker build/run not independently verified** (see below) |
 | Phase 5 — Security Gate v1 (Data & Model Integrity) | Not started |
 | Phase 6 — Security Gate v2 (Adversarial + Dependency) | Not started |
 | Phase 7 — Security Scoring & Gate Decision Logic | Not started |
@@ -543,13 +543,144 @@ see `.gitignore` for the specific reasoning per entry):
 `data/processed/phase3_run_info.json`, `data/processed/phase3_metrics.json`,
 `models/phase3_model.joblib`.
 
-### Next: Phase 4 — Deployment Service (FastAPI + Docker)
+---
 
-Containerized inference API serving the registered model. Gate: deployed
-API's predictions match offline evaluation results within tolerance, the
-container starts cleanly from `docker run` with no manual steps, and
-invalid/malformed input is rejected with a proper error rather than
-crashing the service. Note: this phase will need Docker build/run
-verification, which this sandbox cannot do (see Phase 0 notes) — expect
-the same documented limitation to apply. Not started yet — waiting on
-Phase 3 sign-off.
+## Phase 4 — Deployment Service (FastAPI + Docker)
+
+**Git commit range:** `ac510c3..bf3f323` (single commit `bf3f323`, right
+after Phase 3's `ac510c3`).
+
+**Goal:** wrap the Phase 1/2 model in an inference API, prove its served
+predictions match offline predictions exactly, prove it rejects bad input
+without crashing, and containerize it.
+
+**Status is intentionally marked ⚠️, not ✅** — see "What's NOT verified"
+below. Everything sandbox-testable passed; the one plan-mandated check this
+sandbox cannot perform (a live `docker build`/`docker run`) has not been
+done by anyone yet, and this file says so plainly rather than assuming it
+would pass.
+
+### What was built
+
+- **API contract locked first**, in `docs/phase4_api_spec.md`: a single
+  batch `POST /predict` endpoint (no separate single-record endpoint — one
+  contract, no special-casing), `GET /health`, and per-field validation
+  bounds taken directly from NSL-KDD's own documented feature definitions
+  (counts ≥0, binary flags ∈{0,1}, rate features ∈[0,1]) — not arbitrary
+  API design, so a legitimate dataset record can never itself be rejected.
+  One deliberate, documented asymmetry: `service` values outside the
+  training set are accepted (`200`, not `422`), because Phase 1's model
+  itself was built with `OneHotEncoder(handle_unknown="ignore")`
+  specifically for this reason — the API must not be stricter than the
+  model it serves.
+- **`src/api/main.py` + `schemas.py`**: loads
+  `models/baseline_model.joblib` once at process startup and **fails
+  fast** if it's missing (crashes on startup rather than serving `503`s
+  per-request — a silently modelless service is worse than one that never
+  starts). Pydantic validation sits in front of the model as the only
+  gate, so a validated request is guaranteed shaped correctly before it
+  ever reaches the pipeline.
+- **13-test pytest suite** (`tests/api/test_predict_api.py`), all via
+  FastAPI's `TestClient` (a real ASGI request/response cycle, not a mock):
+  - exact prediction parity — API output vs. calling the loaded pipeline
+    directly on the same `KDDTest+.txt` records, not just "close" (`pytest.approx` at `1e-12`, matching float noise only)
+  - full invalid-input contract coverage: missing field, wrong type,
+    unknown `protocol_type`/`flag`, out-of-range rate, negative count,
+    empty batch, malformed body — every case → `422`, none crash
+  - the one deliberate exception (unseen `service` value) → confirmed `200`
+  - a basic concurrent-load smoke check (30 requests, 10 workers)
+- **`docker/api.Dockerfile`**: bakes the DVC-pulled model into the image,
+  runs via `uvicorn`, includes a `HEALTHCHECK` that hits the real
+  `/health` endpoint (not just "is the process alive"). `docker-compose.yml`
+  gained an `api` service.
+
+### What the gate script additionally proves beyond the pytest suite
+
+`scripts/validate_phase4.sh` goes further than the test suite alone:
+
+- Spins up a **real `uvicorn` subprocess** (not `TestClient`) and hits it
+  with real HTTP requests via `curl`/`urllib` — confirming the live server's
+  `/health` and `/predict` behave identically to the in-process tests,
+  including exact prediction-parity match and `422` on invalid input over
+  a real HTTP round-trip.
+- Runs `docker compose config` to validate the Dockerfile/compose YAML
+  syntax — this does **not** require pulling any image, so it works even
+  under this sandbox's Docker Hub block, and it did catch that both
+  Dockerfiles parse correctly.
+
+### What's NOT verified (read this before trusting the gate)
+
+A live `docker build -f docker/api.Dockerfile ...` followed by
+`docker run` has **not** been executed by anyone, in this sandbox or
+otherwise, as of this commit. This sandbox's Docker Hub pulls are blocked
+at the network-policy level (see Phase 0 notes) — same limitation, but
+higher-stakes here since Phase 4's actual deliverable is the container.
+Unlike Phase 0 (where the containerized piece was incidental to that
+phase's real goal), this phase's plan-mandated gate criterion
+("the container starts cleanly from `docker run` with no manual steps")
+is **not yet independently confirmed by a human or CI**. To close this
+out for real:
+
+```
+dvc pull
+docker build -f docker/api.Dockerfile -t mlshield-api .
+docker run --rm -p 8000:8000 mlshield-api
+curl http://localhost:8000/health
+curl -X POST http://localhost:8000/predict -H "Content-Type: application/json" \
+  -d '{"records": [{...one full NSL-KDD record...}]}'
+```
+
+Until that's run somewhere with real Docker Hub access and confirmed
+working, treat this phase as "code complete, container unverified" rather
+than fully done — the status row above reflects that on purpose.
+
+### Validation gate result
+
+Run: `bash scripts/validate_phase4.sh`
+
+```
+=== Phase 4 Validation Gate ===
+
+[1/3] pytest suite (contract + prediction parity + basic load)
+  ... 13 passed, 2 warnings in 4.25s
+  pytest suite passed
+
+[2/3] Live server check (real subprocess, real HTTP, not TestClient)
+  Live server /health OK: {"status":"ok","model_loaded":true,"model_source":"/home/user/MLopsCP/models/baseline_model.joblib"}
+  Live server /predict matches offline predictions exactly (real HTTP round-trip)
+  Live server rejects invalid input with 422 (empty records list)
+
+[3/3] Docker/compose syntax check (no image pull required)
+  docker-compose.yml + Dockerfiles parse correctly (docker compose config)
+  NOTE: a live 'docker build'/'docker run' is NOT exercised in this
+  sandbox (Docker Hub pulls are blocked at the network-policy level -
+  see progress.md Phase 0 and Phase 4 notes). Verify independently:
+    dvc pull && docker build -f docker/api.Dockerfile -t mlshield-api . && \
+    docker run --rm -p 8000:8000 mlshield-api
+
+=== PHASE 4 GATE: PASSED (all sandbox-testable checks; docker build/run still needs independent verification - see note above) ===
+```
+
+### Repo additions in this phase
+
+```
+docs/
+  phase4_api_spec.md
+src/
+  api/{main,schemas}.py
+tests/
+  api/test_predict_api.py
+docker/
+  api.Dockerfile
+scripts/
+  validate_phase4.sh
+```
+
+### Next: Phase 5 — Security Gate v1 (Data & Model Integrity)
+
+Implement one named poisoning-detection method and model-artifact
+integrity verification via cryptographic signing. Gate: poisoning detector
+hits an agreed minimum recall at an agreed maximum false-positive rate on
+a controlled injection test; tampering check catches 100% of artificially
+modified artifacts in a 10-case test set. Not started yet — waiting on
+Phase 4 sign-off (with the Docker caveat above noted, not resolved).
