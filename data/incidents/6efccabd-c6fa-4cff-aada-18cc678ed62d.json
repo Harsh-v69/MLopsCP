@@ -1,0 +1,35 @@
+{
+  "incident_id": "6efccabd-c6fa-4cff-aada-18cc678ed62d",
+  "detected_at": "2026-10-01T06:44:37.934929+00:00",
+  "attack_type": "data_poisoning",
+  "atlas_tactic": "Poisoning",
+  "detection_mechanism": "data_scan",
+  "evidence": {
+    "data_scan": {
+      "recall": 0.546875,
+      "false_positive_rate": 0.4791666666666667,
+      "status": "ok"
+    },
+    "model_scan": {
+      "integrity_ok": true,
+      "clean_accuracy": 1.0,
+      "adversarial_accuracy": 0.79,
+      "status": "ok"
+    },
+    "dependency_scan": {
+      "vulnerability_count": 3,
+      "status": "ok"
+    }
+  },
+  "gate_decision": "BORDERLINE",
+  "action_taken": "quarantined_after_approver_rejection",
+  "approval_record": {
+    "actor": "attack-lab-approver",
+    "role": "APPROVER",
+    "justification": "Rejecting: data poisoning attack evidence in this run's scan results (security_score=54.98, data_score=32.81, model_score=65.00).",
+    "timestamp": "2026-10-01T06:40:38.007476+00:00"
+  },
+  "recovery_outcome": "redeployed_clean",
+  "linked_audit_log_seqs": [],
+  "postmortem_summary": "Incident 6efccabd-c6fa-4cff-aada-18cc678ed62d: a data poisoning attack (MITRE ATLAS: Poisoning) was detected via data_scan at 2026-10-01T06:44:37.934929+00:00. The Security Gate returned BORDERLINE. An Approver (attack-lab-approver) reviewed the evidence and recorded: \"Rejecting: data poisoning attack evidence in this run's scan results (security_score=54.98, data_score=32.81, model_score=65.00).\". Action taken: quarantined after approver rejection. Recovery outcome: redeployed clean."
+}

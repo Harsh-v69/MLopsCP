@@ -45,19 +45,28 @@ def get_or_create_private_key():
     return private_key
 
 
+def sign_model_at(model_path: Path, signature_path: Path) -> None:
+    """Reusable core of `main()` for an arbitrary artifact/signature path
+    pair - added in Phase 10 so the recovery cycle can sign a freshly
+    retrained model without duplicating this logic. The CLI entry point
+    below (`main()`) is unchanged and still signs the fixed production
+    paths."""
+    private_key = get_or_create_private_key()
+    signature = sign_artifact(model_path, private_key)
+
+    signature_path.write_text(json.dumps({
+        "artifact": model_path.name,
+        "algorithm": "Ed25519",
+        "signature_b64": base64.b64encode(signature).decode("ascii"),
+    }, indent=2))
+
+
 def main() -> int:
     if not MODEL_PATH.exists():
         print(f"FATAL: model artifact not found at {MODEL_PATH}. Run `dvc pull` first.", file=sys.stderr)
         return 1
 
-    private_key = get_or_create_private_key()
-    signature = sign_artifact(MODEL_PATH, private_key)
-
-    SIGNATURE_PATH.write_text(json.dumps({
-        "artifact": MODEL_PATH.name,
-        "algorithm": "Ed25519",
-        "signature_b64": base64.b64encode(signature).decode("ascii"),
-    }, indent=2))
+    sign_model_at(MODEL_PATH, SIGNATURE_PATH)
 
     print(f"SIGN OK: {MODEL_PATH} signed, signature written to {SIGNATURE_PATH}")
     return 0

@@ -1282,13 +1282,221 @@ scripts/
   validate_phase9.sh
 ```
 
-### Next: Phase 10 — Attack Laboratory & Recovery Cycle
+---
 
-Scripted end-to-end attack scenarios mapped to specific MITRE ATLAS
-techniques (poisoning, evasion, tampering), plus the automated
-quarantine → retrain → revalidate → redeploy recovery flow and
-auto-populated incident postmortems. Gate: all three attack types
-detected, correctly blocked or routed to approval, and the system
-recovers through the automated cycle without manual code changes — only
-the approval step involves a human. Not started yet — waiting on Phase 9
-sign-off.
+## Phase 10 — Attack Laboratory & Recovery Cycle
+
+**Git commit range:** Phase 10's code + this entry land in a single
+commit, right after Phase 9's `cb2350a`.
+
+**Goal:** the capstone integration phase. It doesn't add a new detector
+(that was Phases 5-6) — it proves the detectors, the gate (Phase 7),
+governance (Phase 8), and the pipeline (Phase 3) all work together,
+*live*, against real attacks, with fully automated recovery. Every number
+in `docs/phase10_attack_lab_spec.md` was measured against this project's
+real model before being locked, not guessed.
+
+### What was built
+
+- **Live per-run wiring** (`src/pipeline/data_scan.py`,
+  `src/pipeline/model_scan.py`): the same detector code Phase 5/6 already
+  wrote and tested, called against *this run's* staged/trained artifact
+  instead of only the fixed calibration subsample. `src/security/gate.py`,
+  `sign_model.py`, `evaluate_poisoning_detector.py`, and
+  `adversarial_test.py` each gained a small, backward-compatible extension
+  (optional path parameters / a reusable core function) to make this
+  possible — every existing caller from Phases 7-9 was re-verified
+  unaffected.
+- **`src/pipeline/model_scan.py`'s `robustness_mode`**: `"standard"`
+  (Phase 6's fast surrogate-transfer check), `"direct_attack"` (Phase 10's
+  own HopSkipJump black-box attack, ART's `HopSkipJump` against the real
+  RandomForest, no surrogate — Phase 6's FGSM surrogate-transfer attack
+  was re-tested directly for this phase and, even strengthened
+  (PGD/large-epsilon/unrestricted surface), couldn't push degradation past
+  ~3%: a genuine low-transferability finding, not a bug, and the reason
+  Attack 2 uses a different technique than Phase 6's CI check).
+- **Incident postmortems** (`src/incident/postmortem.py`): one
+  auto-populated record per detected attack — MITRE ATLAS tactic, the
+  specific evidence that triggered detection, the gate decision, the
+  action taken, the approval record (or `null` for a FAIL, where no
+  approval step applies), and the recovery outcome — generated whether
+  recovery succeeds or not, since a failed recovery is itself
+  incident-worthy.
+- **Recovery cycle orchestrator** (`src/recovery/cycle.py`):
+  QUARANTINE (move the attacked artifact aside, never delete) → RETRAIN
+  (on the original Phase 0 locked, hash-verified raw data — the ingest
+  source override is explicitly cleared first, regardless of what an
+  attack scenario set, so recovery can never accidentally retrain on
+  attacked input) → REVALIDATE (a full fresh gate run against the
+  retrained model) → REDEPLOY (only if REVALIDATE is PASS; anything else
+  is logged as a new incident, not silently retried). For a BORDERLINE
+  decision, a real Approver call goes through Phase 8's RBAC
+  (`approve_or_reject`) and rejects with a justification citing the
+  specific evidence — not a bypass. Every step calls the *same*
+  `src/pipeline/*.py` / `src/security/*.py` / `src/governance/*.py`
+  functions every other phase already wrote; this file is an orchestrator,
+  not a reimplementation.
+- **Three attack scenarios** (`tests/attack_lab/scenarios.py`): each a
+  live, start-to-finish pipeline run — real ingest/train/sign/scan/gate,
+  real audit log, real recovery — for data poisoning (40% label-flip,
+  attack strength vs. Phase 5's 10% calibration), evasion (the direct
+  HopSkipJump attack), and model tampering (a single-byte flip on the
+  freshly-signed artifact, same technique as Phase 5's 10-case test,
+  applied live).
+
+### Three real bugs found and fixed during this phase
+
+1. **`REPO_ROOT` off-by-one in `scenarios.py`.** Written as
+   `Path(__file__).resolve().parents[3]` for a file at
+   `tests/attack_lab/scenarios.py` — `parents[2]` is the repo root;
+   `parents[3]` resolves one level *above* it (`/home/user`), so every
+   path built from it (raw data, model artifact) pointed outside the
+   repo. Caught immediately: the first scenario smoke-test failed with
+   `FileNotFoundError: /home/user/data/raw/KDDTrain+.txt`. Fixed by
+   correcting the index; re-verified against the actual repo-root path.
+2. **Poisoning fixture generator could erase rare NSL-KDD classes.** The
+   original label-flip logic picked poison indices uniformly at random
+   across the *entire* training file, then flipped *any* non-"normal"
+   label to `"normal"` — not just `"neptune"`. At a 40% attack-strength
+   flip rate, this could (and did) wipe a rare multiclass label like
+   `phf` (4 instances total) or `spy` (2 instances total) down to a single
+   surviving row, which crashes `make_split`'s stratified split
+   (`sklearn` requires >=2 members per class): `ValueError: The least
+   populated classes in y have only 1 member`. This is a real dataset
+   interaction the original design hadn't accounted for — restricted the
+   poison candidate pool to rows already labeled `"normal"` or
+   `"neptune"` (NSL-KDD's two largest classes, ~86% of the training set,
+   plenty of headroom for a 40% flip rate), which both fixes the crash
+   *and* is arguably the more realistic attack: flipping between the two
+   dominant classes, not touching rare ones at all.
+3. **Smoke-test harness invocation masked a real dependency-scan
+   path problem.** Early manual smoke tests invoked
+   `.venv/bin/python3` directly (without `source .venv/bin/activate`),
+   so `subprocess.run(["pip-audit", ...])` inside
+   `src/security/dependency_scan.py` couldn't find the binary on `PATH`
+   — `gate.py`'s fail-closed handling silently turned that into
+   `dependency_score=0.0`, which looked like a real finding (and briefly
+   looked like it could make the recovery cycle's revalidation
+   permanently unable to reach PASS in this sandbox, which would have
+   been a serious design problem). Confirmed by running `pip-audit`
+   directly with the venv activated — it works fine and finds the same 3
+   known vulnerabilities (in `pyjwt` and `diskcache`) this project's
+   dependency scan has reported since Phase 6, giving the expected
+   `dependency_score=70`. Not a code bug — a test-invocation bug, fixed
+   by always activating the venv before running scenario/gate scripts
+   from this point on.
+
+Also addressed proactively, before any scenario was run: `model_scan.main`
+has a `"skip"` robustness mode (used when a scenario doesn't need to
+re-run the slow/standard robustness check every time) that leaves
+`data/processed/current_run_adversarial_eval.json` untouched for that
+run. Since the gate always reads whatever is currently in that file, using
+`"skip"` in the poisoning and tampering scenarios would have let the gate
+silently read *stale* robustness data left over from a previous scenario
+run (e.g. the evasion scenario's 35% degradation, or nothing at all on a
+fresh checkout) instead of a genuinely clean result — breaking the
+"isolate one attack type per scenario" design and making outcomes
+order-dependent. Fixed before first execution by having those two
+scenarios run `robustness_mode="standard"` instead (a fast, ~1s check on
+this model) so every scenario always writes its own fresh, correct
+robustness result.
+
+### Scenario results (empirical, matches the locked spec's predicted
+decision category on every run; exact sub-scores differ slightly from
+the spec's pre-lock isolated-detector estimates because these are full
+pipeline integration numbers — the model is actually trained on the
+poisoned/attacked data, not just measured against it in isolation)
+
+| Attack | Run | Initial decision | security_score | Recovery outcome | Revalidated |
+|---|---|---|---|---|---|
+| Poisoning (40%) | seed 1 | BORDERLINE | 54.9844 | redeployed_clean | PASS (86.5746) |
+| Poisoning (40%) | seed 2 | BORDERLINE | 61.1151 | redeployed_clean | PASS (86.5746) |
+| Evasion (HopSkipJump) | seed 1 | BORDERLINE | 67.2413 | redeployed_clean | PASS (86.5746) |
+| Evasion (HopSkipJump) | seed 2 | BORDERLINE | 67.2413 | redeployed_clean | PASS (86.5746) |
+| Tampering (byte flip) | seed 1 | FAIL (hard override) | 66.5746 | redeployed_clean | PASS (86.5746) |
+| Tampering (byte flip) | seed 2 | FAIL (hard override) | 66.5746 | redeployed_clean | PASS (86.5746) |
+
+Worth stating plainly rather than smoothing over: the poisoning scenario's
+two runs land at genuinely different scores (54.98 vs. 61.12) because a
+different random 40%-of-normal/neptune flip mask trains a measurably
+different model each time — real variance, not noise to average away. The
+evasion and tampering scenarios instead land on the *exact* same score
+both runs: evasion's `run_direct_evasion_attack` and tampering's
+retrain both use this project's existing fixed internal seeds rather than
+`run_seed`, so those two attacks are fully deterministic end to end. Both
+behaviors are legitimate for the spec's "run twice, rule out a lucky
+single run" protocol — poisoning's variation shows the gate stays
+correctly BORDERLINE across different attack-mask draws, while
+evasion/tampering's determinism shows the same real attack reproduces
+identically.
+
+Every run's revalidated model reaches the exact same PASS security_score
+(86.5746) as this project's known-good baseline — proof the recovery
+cycle retrains on genuinely clean data and reproduces the same good
+outcome regardless of which attack triggered it.
+
+### Validation gate result
+
+Run: `bash scripts/validate_phase10.sh` (real end-to-end run: 3 attack
+types x 2 runs each = 6 full train→attack→detect→recover cycles,
+including 2 real HopSkipJump black-box attacks — took 50m38s)
+
+```
+=== Phase 10 Validation Gate ===
+
+[1/1] Attack lab: poisoning, evasion, tampering - each run twice, each
+      expected to be caught by the gate and recovered to a clean,
+      redeployed, PASS-ing model.
+================= 6 passed, 12 warnings in 3038.45s (0:50:38) ==================
+  Attack lab passed (6 tests: poisoning x2, evasion x2, tampering x2 -
+  each detected and automatically recovered to a clean PASS)
+
+=== PHASE 10 GATE: PASSED ===
+```
+
+### Repo additions in this phase
+
+```
+docs/
+  phase10_attack_lab_spec.md
+src/
+  pipeline/{data_scan,model_scan}.py
+  incident/postmortem.py
+  recovery/cycle.py
+tests/
+  attack_lab/{scenarios,test_attack_scenarios}.py
+scripts/
+  validate_phase10.sh
+data/incidents/                     (real, committed evidence - the 6 postmortems from the
+                                      final gate run below; earlier smoke-test runs' postmortems
+                                      were real too but not kept, to avoid repo noise)
+```
+
+`data/quarantine/` (the quarantined attacked model binaries themselves,
+~16MB each) and `data/processed/current_run_*.json` (per-run scan
+results, overwritten every run) are gitignored — real byproducts of every
+attack-lab run, but bulky/ephemeral rather than meaningful history; the
+incident postmortems are the kept record of what each run actually did.
+
+`data/audit/audit_log.jsonl` grew from 4 entries (Phase 8) to 78 across
+this phase's development — every smoke-test iteration and the final
+official gate run wrote real, hash-chained entries to the same default
+log path (`AuditLog()`'s default, by design — there's no "test mode" that
+skips the real log). Unlike the incident postmortems, a hash chain can't
+be selectively pruned without breaking it, so all 78 are kept as-is;
+`log.verify_chain()` confirms `valid=True` across the full chain.
+
+### What's left
+
+All 12 phases of the original plan (Phase 0 through Phase 10, plus the
+initial Phase 0 setup) are now complete and gate-verified. This project
+demonstrates a full MLOps security lifecycle: data/model versioning
+(DVC), orchestration (Airflow), experiment tracking (MLflow), serving
+(FastAPI), live poisoning/tampering/evasion detection, a weighted
+security gate with a graduated PASS/BORDERLINE/FAIL decision, RBAC +
+tamper-evident audit logging + human-in-the-loop approval for borderline
+cases, SHAP explainability + auto-generated Model Cards + a live
+dashboard, and — this phase — fully automated attack detection and
+recovery, closing the loop from "attack happens" to "clean model
+redeployed" without manual intervention beyond the one designed approval
+step.

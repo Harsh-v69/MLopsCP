@@ -30,6 +30,13 @@ N_EVAL_SAMPLES = 100
 RANDOM_SEED = 42
 MAX_ALLOWED_DEGRADATION = 0.30
 
+# Phase 10 direct-attack (HopSkipJump) parameters - locked in
+# docs/phase10_attack_lab_spec.md (Attack 2) after empirical measurement.
+DIRECT_ATTACK_N_SAMPLES = 20
+DIRECT_ATTACK_MAX_ITER = 10
+DIRECT_ATTACK_MAX_EVAL = 200
+DIRECT_ATTACK_INIT_EVAL = 50
+
 RATE_FEATURES = [
     "serror_rate", "srv_serror_rate", "rerror_rate", "srv_rerror_rate",
     "same_srv_rate", "diff_srv_rate", "srv_diff_host_rate",
@@ -55,8 +62,12 @@ def _build_perturbation_mask(preprocess) -> np.ndarray:
     return mask
 
 
-def run_adversarial_test() -> dict:
-    pipeline = joblib.load(MODEL_PATH)
+def run_adversarial_test(model_path: Path = MODEL_PATH) -> dict:
+    """model_path defaults to the fixed production model (unchanged
+    behavior for every existing caller) - Phase 10's recovery cycle passes
+    a per-run retrained model instead, to revalidate robustness of a
+    freshly-trained model, not only the one currently in production."""
+    pipeline = joblib.load(model_path)
     preprocess = pipeline.named_steps["preprocess"]
     rf_model = pipeline.named_steps["model"]
 
@@ -133,6 +144,80 @@ def run_adversarial_test() -> dict:
         "degradation": degradation,
         "max_allowed_degradation": MAX_ALLOWED_DEGRADATION,
         "n_rate_feature_dims_actually_perturbed": n_perturbed_features_used,
+        "passed": bool(degradation <= MAX_ALLOWED_DEGRADATION),
+    }
+
+
+def run_direct_evasion_attack(
+    model_path: Path = MODEL_PATH,
+    n_samples: int = DIRECT_ATTACK_N_SAMPLES,
+    seed: int = RANDOM_SEED,
+) -> dict:
+    """Phase 10 — a direct, decision-based black-box attack (ART's
+    HopSkipJump) against the real RandomForest, no surrogate. Locked in
+    docs/phase10_attack_lab_spec.md (Attack 2) as the attack-lab's evasion
+    technique, distinct from this file's own run_adversarial_test() above
+    (Phase 6's fast surrogate-transfer CI check): that test, re-run here
+    with PGD, large epsilon, and an unrestricted feature surface, could
+    not push degradation past ~3% - a real finding that this RandomForest
+    has low transferability from a linear surrogate, not a gap to paper
+    over. HopSkipJump instead queries the real model's own decisions
+    directly, modeling an attacker with only API query access (exactly
+    what Phase 4's /predict endpoint exposes) - measured at 20 samples,
+    max_iter=10: 35% degradation in ~23s, comfortably crossing the 30%
+    bar. No feature mask here (unlike the surrogate test) - this models an
+    attacker who found a way to manipulate the full feature space, a
+    stronger and deliberately different threat model than Phase 6's
+    API-schema-constrained one; see the spec for why that distinction
+    matters.
+    """
+    from art.attacks.evasion import HopSkipJump
+    from art.estimators.classification import SklearnClassifier as ARTSklearnClassifier
+
+    pipeline = joblib.load(model_path)
+    preprocess = pipeline.named_steps["preprocess"]
+    rf_model = pipeline.named_steps["model"]
+
+    test_df = load_raw(TEST_FILE)
+    X_raw = test_df[FEATURE_COLUMNS]
+    y_true = to_binary_label(test_df["label"]).to_numpy()
+
+    X_transformed = preprocess.transform(X_raw)
+    if hasattr(X_transformed, "toarray"):
+        X_transformed = X_transformed.toarray()
+    X_transformed = X_transformed.astype(np.float32)
+
+    clean_predictions = rf_model.predict(X_transformed)
+    correct_indices = np.where(clean_predictions == y_true)[0]
+
+    rng = np.random.default_rng(seed)
+    eval_indices = rng.choice(correct_indices, size=min(n_samples, len(correct_indices)), replace=False)
+    eval_indices.sort()
+    X_eval = X_transformed[eval_indices]
+    y_eval = y_true[eval_indices]
+
+    art_classifier = ARTSklearnClassifier(model=rf_model, clip_values=(0.0, max(float(X_transformed.max()), 1.0)))
+    attack = HopSkipJump(
+        classifier=art_classifier,
+        max_iter=DIRECT_ATTACK_MAX_ITER,
+        max_eval=DIRECT_ATTACK_MAX_EVAL,
+        init_eval=DIRECT_ATTACK_INIT_EVAL,
+        verbose=False,
+    )
+    X_adv = attack.generate(x=X_eval)
+
+    clean_accuracy = float(np.mean(rf_model.predict(X_eval) == y_eval))
+    adversarial_accuracy = float(np.mean(rf_model.predict(X_adv) == y_eval))
+    degradation = clean_accuracy - adversarial_accuracy
+
+    return {
+        "technique": "HopSkipJump (direct, decision-based, no surrogate)",
+        "n_eval_samples": int(len(X_eval)),
+        "max_iter": DIRECT_ATTACK_MAX_ITER,
+        "clean_accuracy": clean_accuracy,
+        "adversarial_accuracy": adversarial_accuracy,
+        "degradation": degradation,
+        "max_allowed_degradation": MAX_ALLOWED_DEGRADATION,
         "passed": bool(degradation <= MAX_ALLOWED_DEGRADATION),
     }
 

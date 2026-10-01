@@ -1,0 +1,30 @@
+{
+  "incident_id": "467306ae-e648-4bfa-affc-4066501670b1",
+  "detected_at": "2026-10-01T07:24:08.232842+00:00",
+  "attack_type": "model_tampering",
+  "atlas_tactic": "Persistence / ML Model Access",
+  "detection_mechanism": "model_scan (integrity)",
+  "evidence": {
+    "data_scan": {
+      "recall": 0.96625,
+      "false_positive_rate": 0.0325,
+      "status": "ok"
+    },
+    "model_scan": {
+      "integrity_ok": false,
+      "clean_accuracy": 1.0,
+      "adversarial_accuracy": 0.99,
+      "status": "ok"
+    },
+    "dependency_scan": {
+      "vulnerability_count": 3,
+      "status": "ok"
+    }
+  },
+  "gate_decision": "FAIL",
+  "action_taken": "quarantined_immediately",
+  "approval_record": null,
+  "recovery_outcome": "redeployed_clean",
+  "linked_audit_log_seqs": [],
+  "postmortem_summary": "Incident 467306ae-e648-4bfa-affc-4066501670b1: a model tampering attack (MITRE ATLAS: Persistence / ML Model Access) was detected via model_scan (integrity) at 2026-10-01T07:24:08.232842+00:00. The Security Gate returned FAIL. Action taken: quarantined immediately. Recovery outcome: redeployed clean."
+}

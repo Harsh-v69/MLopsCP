@@ -27,19 +27,21 @@ MIN_RECALL = 0.80
 MAX_FPR = 0.10
 
 
-def main() -> int:
-    train_raw = load_raw(REPO_ROOT / "data" / "raw" / "KDDTrain+.txt")
-    train_df, _ = make_split(train_raw)
-
-    rng = np.random.default_rng(SUBSAMPLE_SEED)
-    subsample = train_df.sample(n=SUBSAMPLE_SIZE, random_state=SUBSAMPLE_SEED).reset_index(drop=True)
+def run_injection_test(train_df, poison_rate: float = POISON_RATE, seed: int = SUBSAMPLE_SEED) -> dict:
+    """Core of the injection-benchmark protocol, extracted in Phase 10 so
+    it can be reused against an arbitrary (e.g. per-pipeline-run staged)
+    DataFrame at an arbitrary poison rate - not just the fixed calibration
+    subsample at the fixed 10% rate. The original calibration call
+    (`main()` below) is unchanged."""
+    rng = np.random.default_rng(seed)
+    subsample = train_df.sample(n=min(SUBSAMPLE_SIZE, len(train_df)), random_state=seed).reset_index(drop=True)
 
     feature_cols = CATEGORICAL_FEATURES + NUMERIC_FEATURES
     features_df = subsample[feature_cols].copy()
     binary_labels = to_binary_label(subsample["label"]).to_numpy().copy()
 
     n = len(binary_labels)
-    n_poison = int(round(n * POISON_RATE))
+    n_poison = int(round(n * poison_rate))
     poison_indices = rng.choice(n, size=n_poison, replace=False)
     is_poisoned = np.zeros(n, dtype=bool)
     is_poisoned[poison_indices] = True
@@ -63,11 +65,11 @@ def main() -> int:
     recall = true_positives / (true_positives + false_negatives) if (true_positives + false_negatives) else 0.0
     fpr = false_positives / (false_positives + true_negatives) if (false_positives + true_negatives) else 0.0
 
-    results = {
+    return {
         "k": K_NEIGHBORS,
         "agreement_threshold": AGREEMENT_THRESHOLD,
-        "subsample_size": SUBSAMPLE_SIZE,
-        "poison_rate": POISON_RATE,
+        "subsample_size": len(subsample),
+        "poison_rate": poison_rate,
         "n_poisoned": int(n_poison),
         "true_positives": int(true_positives),
         "false_negatives": int(false_negatives),
@@ -80,11 +82,18 @@ def main() -> int:
         "passed": bool(recall >= MIN_RECALL and fpr <= MAX_FPR),
     }
 
+
+def main() -> int:
+    train_raw = load_raw(REPO_ROOT / "data" / "raw" / "KDDTrain+.txt")
+    train_df, _ = make_split(train_raw)
+
+    results = run_injection_test(train_df, poison_rate=POISON_RATE, seed=SUBSAMPLE_SEED)
+
     RESULTS_OUT.parent.mkdir(parents=True, exist_ok=True)
     RESULTS_OUT.write_text(json.dumps(results, indent=2))
 
-    print(f"Recall:              {recall:.4f} (bar: >= {MIN_RECALL})")
-    print(f"False positive rate: {fpr:.4f} (bar: <= {MAX_FPR})")
+    print(f"Recall:              {results['recall']:.4f} (bar: >= {MIN_RECALL})")
+    print(f"False positive rate: {results['false_positive_rate']:.4f} (bar: <= {MAX_FPR})")
     print(f"PASS" if results["passed"] else "FAIL")
     print(f"Results written to {RESULTS_OUT}")
 

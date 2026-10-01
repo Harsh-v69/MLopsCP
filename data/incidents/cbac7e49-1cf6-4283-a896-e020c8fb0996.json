@@ -1,0 +1,35 @@
+{
+  "incident_id": "cbac7e49-1cf6-4283-a896-e020c8fb0996",
+  "detected_at": "2026-10-01T07:02:14.432581+00:00",
+  "attack_type": "evasion",
+  "atlas_tactic": "Evasion",
+  "detection_mechanism": "model_scan (robustness)",
+  "evidence": {
+    "data_scan": {
+      "recall": 0.96625,
+      "false_positive_rate": 0.0325,
+      "status": "ok"
+    },
+    "model_scan": {
+      "integrity_ok": true,
+      "clean_accuracy": 1.0,
+      "adversarial_accuracy": 0.65,
+      "status": "ok"
+    },
+    "dependency_scan": {
+      "vulnerability_count": 3,
+      "status": "ok"
+    }
+  },
+  "gate_decision": "BORDERLINE",
+  "action_taken": "quarantined_after_approver_rejection",
+  "approval_record": {
+    "actor": "attack-lab-approver",
+    "role": "APPROVER",
+    "justification": "Rejecting: evasion attack evidence in this run's scan results (security_score=67.24, data_score=84.98, model_score=50.00).",
+    "timestamp": "2026-10-01T06:58:00.458854+00:00"
+  },
+  "recovery_outcome": "redeployed_clean",
+  "linked_audit_log_seqs": [],
+  "postmortem_summary": "Incident cbac7e49-1cf6-4283-a896-e020c8fb0996: a evasion attack (MITRE ATLAS: Evasion) was detected via model_scan (robustness) at 2026-10-01T07:02:14.432581+00:00. The Security Gate returned BORDERLINE. An Approver (attack-lab-approver) reviewed the evidence and recorded: \"Rejecting: evasion attack evidence in this run's scan results (security_score=67.24, data_score=84.98, model_score=50.00).\". Action taken: quarantined after approver rejection. Recovery outcome: redeployed clean."
+}

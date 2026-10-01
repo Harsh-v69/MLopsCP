@@ -84,11 +84,20 @@ def run_gate(
     poisoning_eval_path: Path = POISONING_EVAL_PATH,
     adversarial_eval_path: Path = ADVERSARIAL_EVAL_PATH,
     requirements_path: Path = REQUIREMENTS_PATH,
+    model_artifact_path: Optional[Path] = None,
+    model_signature_path: Optional[Path] = None,
 ) -> GateResult:
     """Integration entry point: reads Phase 5/6's stored evaluation
     results, runs live integrity verification and a live dependency scan,
     and returns the full gate decision with every sub-score shown (never
-    just the decision alone)."""
+    just the decision alone).
+
+    model_artifact_path/model_signature_path default to the fixed
+    production model (unchanged behavior for every existing caller) - Phase
+    10's attack lab passes a per-run artifact/signature instead, so the
+    gate can evaluate a just-trained (possibly tampered) model rather than
+    only the one currently in production.
+    """
     details = {}
 
     # data_score — fail-closed if the stored Phase 5 result is missing/unreadable.
@@ -103,8 +112,13 @@ def run_gate(
         details["data_scan"] = {"status": "failed", "error": str(e)}
 
     # model_score — integrity is live; robustness comes from Phase 6's stored result.
+    verify_kwargs = {}
+    if model_artifact_path is not None:
+        verify_kwargs["artifact_path"] = model_artifact_path
+    if model_signature_path is not None:
+        verify_kwargs["signature_path"] = model_signature_path
     try:
-        integrity_ok = verify_model_signature()
+        integrity_ok = verify_model_signature(**verify_kwargs)
     except Exception as e:  # fail-closed: any error verifying integrity = failed integrity
         integrity_ok = False
         details["integrity_check_error"] = str(e)

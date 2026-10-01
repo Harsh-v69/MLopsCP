@@ -29,3 +29,19 @@ data/processed/phase3_run_info.json
 data/processed/phase3_metrics.json
 # confirmed byte-identical to models/baseline_model.joblib (already DVC-tracked); see progress.md
 models/phase3_model.joblib
+# signature of the (gitignored) phase3_model.joblib above - regenerated
+# fresh on every pipeline run, meaningless without the model it signs
+models/phase3_model.joblib.sig
+
+# Phase 10 attack lab — per-run scratch state, regenerated (and
+# overwritten) by every pipeline/scenario run, not meaningful history:
+data/processed/current_run_poisoning_eval.json
+data/processed/current_run_adversarial_eval.json
+# quarantined attacked model artifacts (real, but large binary byproducts
+# of attack-lab test runs - data/incidents/*.json is the kept evidence of
+# what happened; see progress.md Phase 10 notes)
+data/quarantine/
+# deterministically regenerable from data/raw/KDDTrain+.txt + a fixed
+# seed (generate_poisoned_training_file caches by (seed, rate) and
+# regenerates on demand) - no need to version 19MB of derived data twice
+tests/attack_lab/fixtures/*.txt
