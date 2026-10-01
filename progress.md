@@ -1161,9 +1161,9 @@ Outside the repo (documented, not hidden): `~/mlshield-governance/jwt_secret.key
 
 ## Phase 9 — Transparency Layer (Dashboard, Model Cards, SHAP)
 
-**Git commit range:** `574ab1f..0b3a0e2` (two commits: `0b3a0e2` the main
-phase commit, right after Phase 8's `574ab1f`; a trailing commit for a
-scaffold README fix is folded into the same range below).
+**Git commit range:** `574ab1f..0b3a0e2` (single commit `0b3a0e2`, right
+after Phase 8's `574ab1f` — includes the dashboard's scaffold README
+rewrite, folded into the same commit rather than a separate one).
 
 **Goal:** give every release a Model Card and SHAP explanation a
 non-engineer reviewer could read, and a real dashboard that shows exactly
