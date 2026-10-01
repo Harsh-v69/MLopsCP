@@ -71,6 +71,12 @@ class AuditLog:
                     entries.append(json.loads(line))
         return entries
 
+    def entries(self) -> list:
+        """Public read access to every logged entry - used by Phase 9's
+        RBAC-gated /audit-log endpoint. Read-only; there is still no write
+        path other than append()."""
+        return self._read_entries()
+
     def append(self, actor: str, role: str, action: str, details: Optional[dict] = None) -> dict:
         entries = self._read_entries()
         seq = len(entries)
