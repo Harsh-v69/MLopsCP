@@ -9,6 +9,8 @@ importable API.
 import json
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -37,6 +39,37 @@ def run_pip_audit(requirements_path: Path) -> dict:
         raise RuntimeError(
             f"pip-audit did not produce parseable output (exit code {result.returncode}): {result.stderr.strip()}"
         ) from e
+
+
+_AUDIT_CACHE_TTL_SECONDS = 3600
+_audit_cache: dict = {}
+_audit_lock = threading.Lock()
+
+
+def run_pip_audit_cached(requirements_path: Path, ttl: float = _AUDIT_CACHE_TTL_SECONDS):
+    """Same as run_pip_audit, but reuses a successful scan of an unchanged
+    requirements file for `ttl` seconds. Returns (result, age_seconds); age
+    is 0 for a scan that just ran. Failed scans are never cached, so the
+    fail-closed behavior is unchanged. The lock makes concurrent callers
+    (e.g. a dashboard reload mid-scan) share one scan instead of each
+    starting their own multi-minute pip-audit.
+    # ponytail: in-process, per-worker cache; share it (file/redis) if the API runs multiple workers
+    """
+    path = Path(requirements_path)
+    with _audit_lock:
+        try:
+            stat = path.stat()
+            key = (str(path.resolve()), stat.st_mtime_ns, stat.st_size)
+        except OSError:
+            key = None  # missing file: let run_pip_audit fail the same way it always did
+        hit = _audit_cache.get(key) if key else None
+        if hit and time.monotonic() - hit[0] < ttl:
+            return hit[1], round(time.monotonic() - hit[0])
+        result = run_pip_audit(path)
+        if key:
+            _audit_cache.clear()
+            _audit_cache[key] = (time.monotonic(), result)
+        return result, 0
 
 
 def count_vulnerabilities(pip_audit_result: dict) -> int:

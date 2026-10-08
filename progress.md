@@ -1500,3 +1500,28 @@ dashboard, and — this phase — fully automated attack detection and
 recovery, closing the loop from "attack happens" to "clean model
 redeployed" without manual intervention beyond the one designed approval
 step.
+
+## Post-Phase-10 change: dashboard redesign + dependency-scan cache
+
+Not a new phase; recorded here per the change-control rule (changes land as
+new commits and are called out explicitly).
+
+- **Dashboard restyle** (`dashboard/src/`): light tinted theme, plain-language
+  copy, demo presets on the Explain page, loading/empty/error states. Data
+  still comes only from the backend; no values are recomputed client-side.
+- **Dependency-scan cache** (`src/security/dependency_scan.py`
+  `run_pip_audit_cached`): `pip-audit` takes minutes (it builds a temporary
+  environment), and `/security-gate` and `/model-card` each ran it on every
+  call. A successful scan of an unchanged `requirements.txt` is now reused for
+  up to 1 hour, concurrent callers share one run, and the API warms the cache
+  in the background at startup. **Deviation from `docs/phase9_transparency_spec.md`**
+  ("regenerated fresh on every call"): the signature check, data scan and
+  adversarial results are unchanged, but the dependency finding can now be up
+  to an hour old. The age is returned as `details.dependency_scan.scan_age_seconds`
+  and shown on the Overview page. Failed scans are never cached (fail-closed
+  is unchanged). `run_pip_audit` itself is untouched, so direct callers and
+  the existing dependency tests behave as before.
+- **Observed, not fixed:** on the Windows dev machine, `pip-audit` printed
+  "Found 4 known vulnerabilities in 2 packages" but `run_pip_audit` raised
+  "did not produce parseable output (exit code 1)", so the gate scored the
+  dependency scan 0. Cause not yet diagnosed.

@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from src.security.dependency_scan import count_vulnerabilities, run_pip_audit
+from src.security.dependency_scan import count_vulnerabilities, run_pip_audit_cached
 from src.security.verify_model import verify as verify_model_signature
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -147,10 +147,14 @@ def run_gate(
 
     # dependency_score — live scan, fail-closed on any error.
     try:
-        audit_result = run_pip_audit(Path(requirements_path))
+        audit_result, scan_age_seconds = run_pip_audit_cached(Path(requirements_path))
         vulnerability_count = count_vulnerabilities(audit_result)
         dependency_score = compute_dependency_score(vulnerability_count)
-        details["dependency_scan"] = {"vulnerability_count": vulnerability_count, "status": "ok"}
+        details["dependency_scan"] = {
+            "vulnerability_count": vulnerability_count,
+            "scan_age_seconds": scan_age_seconds,
+            "status": "ok",
+        }
     except Exception as e:
         dependency_score = 0.0
         details["dependency_scan"] = {"status": "failed", "error": str(e)}

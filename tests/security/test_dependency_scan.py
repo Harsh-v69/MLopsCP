@@ -52,3 +52,31 @@ def test_sbom_covers_declared_packages(tmp_path):
 
     missing = declared - component_names
     assert not missing, f"SBOM is missing declared packages: {missing}"
+
+
+def test_cached_scan_reuses_success_but_never_caches_failure(tmp_path, monkeypatch):
+    from src.security import dependency_scan as ds
+
+    reqs = tmp_path / "requirements.txt"
+    reqs.write_text("requests==2.0.0\n")
+    ds._audit_cache.clear()
+    calls = []
+
+    def fake_audit(path):
+        calls.append(path)
+        if len(calls) == 1:
+            raise RuntimeError("scan failed")
+        return {"dependencies": []}
+
+    monkeypatch.setattr(ds, "run_pip_audit", fake_audit)
+
+    with pytest.raises(RuntimeError):
+        ds.run_pip_audit_cached(reqs)  # failure must not be cached
+    assert ds.run_pip_audit_cached(reqs) == ({"dependencies": []}, 0)  # fresh run
+    assert ds.run_pip_audit_cached(reqs)[0] == {"dependencies": []}  # served from cache
+    assert len(calls) == 2
+
+    reqs.write_text("requests==2.0.0\nflask==1.0\n")  # file changed -> rescan
+    ds.run_pip_audit_cached(reqs)
+    assert len(calls) == 3
+    ds._audit_cache.clear()

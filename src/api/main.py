@@ -9,6 +9,8 @@ Phase 9 adds the transparency layer endpoints (/predict/explain,
 endpoint for the dashboard - see docs/phase9_transparency_spec.md.
 """
 import sys
+import threading
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
@@ -22,14 +24,30 @@ from src.explainability.shap_explainer import explain_records
 from src.governance.audit_log import AuditLog
 from src.governance.auth import ROLES, authorize, issue_token
 from src.models.train_baseline import CATEGORICAL_FEATURES, NUMERIC_FEATURES
-from src.security.gate import run_gate
+from src.security.dependency_scan import run_pip_audit_cached
+from src.security.gate import REQUIREMENTS_PATH, run_gate
 from src.transparency.model_card import generate_model_card
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MODEL_PATH = REPO_ROOT / "models" / "baseline_model.joblib"
 FEATURE_COLUMNS = CATEGORICAL_FEATURES + NUMERIC_FEATURES  # same order used at training time
 
-app = FastAPI(title="MLShield Inference API", version="0.1.0")
+@asynccontextmanager
+async def lifespan(_app):
+    # Warm the dependency-scan cache in the background so the dashboard's
+    # first load doesn't wait minutes for pip-audit. Errors are ignored here;
+    # a failed scan surfaces (fail-closed) on the first real gate call.
+    def warm():
+        try:
+            run_pip_audit_cached(REQUIREMENTS_PATH)
+        except Exception:
+            pass
+
+    threading.Thread(target=warm, daemon=True).start()
+    yield
+
+
+app = FastAPI(title="MLShield Inference API", version="0.1.0", lifespan=lifespan)
 
 # Dev-only: lets the dashboard (a different origin under Vite) call this
 # API during local development. Not a production CORS policy.

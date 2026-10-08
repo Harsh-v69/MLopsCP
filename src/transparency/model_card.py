@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from src.security.dependency_scan import count_vulnerabilities, run_pip_audit
+from src.security.dependency_scan import count_vulnerabilities, run_pip_audit_cached
 from src.security.gate import run_gate
 from src.security.verify_model import verify as verify_model_signature
 from src.governance.audit_log import AuditLog
@@ -107,7 +107,7 @@ def _adversarial_security() -> dict:
 
 def _dependency_security() -> dict:
     try:
-        audit_result = run_pip_audit(REPO_ROOT / "requirements.txt")
+        audit_result, _ = run_pip_audit_cached(REPO_ROOT / "requirements.txt")
         n = count_vulnerabilities(audit_result)
         return {"vulnerability_count": n}
     except Exception as e:
