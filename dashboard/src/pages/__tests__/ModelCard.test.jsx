@@ -38,7 +38,7 @@ describe('ModelCard', () => {
     // audit_log_chain_valid) - assert on the specific row, not a global
     // text match, now that the test caught the ambiguity.
     const auditRow = screen.getByText('Audit log chain valid').closest('.field-row')
-    expect(within(auditRow).getByText('true')).toBeInTheDocument()
+    expect(within(auditRow).getByText('Valid')).toBeInTheDocument()
   })
 
   it('renders "not available" for a missing section instead of fabricating a value', async () => {

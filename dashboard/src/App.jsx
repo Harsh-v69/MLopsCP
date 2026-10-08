@@ -17,17 +17,21 @@ export default function App() {
 
   return (
     <div className="app">
-      <header>
-        <h1>MLShield</h1>
-        <p className="muted">Transparency layer — live backend data, no mocks</p>
+      <header className="brand">
+        <div className="brand-mark" aria-hidden="true">M</div>
+        <div>
+          <h1>MLShield</h1>
+          <p>Every model release is scanned, scored and recorded. All values come live from the backend.</p>
+        </div>
       </header>
 
-      <nav>
+      <nav aria-label="Sections">
         {Object.entries(TABS).map(([key, tab]) => (
           <button
             key={key}
             className={key === active ? 'tab active' : 'tab'}
             onClick={() => setActive(key)}
+            aria-current={key === active ? 'page' : undefined}
             data-testid={`tab-${key}`}
           >
             {tab.label}
@@ -35,8 +39,8 @@ export default function App() {
         ))}
       </nav>
 
-      <main>
-        <ActiveComponent />
+      <main key={active}>
+        <ActiveComponent onNavigate={setActive} />
       </main>
     </div>
   )

@@ -1,6 +1,7 @@
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
 import { api } from '../api'
 import { useFetch } from '../useFetch'
+import { Badge, ErrorBox, PageHead, Skeleton } from '../ui'
 
 // The backend (src/transparency/model_card.py) can mark EITHER a whole
 // section (e.g. training_data) OR an individual field as unavailable with
@@ -11,97 +12,138 @@ function isUnavailable(value) {
   return value && typeof value === 'object' && value.status === 'not available'
 }
 
-function Field({ label, value }) {
-  if (isUnavailable(value)) {
-    return (
-      <div className="field-row">
-        <span className="field-label">{label}</span>
-        <span className="muted">not available</span>
-      </div>
-    )
-  }
+function Field({ label, value, children }) {
   return (
     <div className="field-row">
       <span className="field-label">{label}</span>
-      <span className="mono">{typeof value === 'object' ? JSON.stringify(value) : String(value)}</span>
+      {children ?? (
+        isUnavailable(value) || value === undefined || value === null
+          ? <span className="muted">not available</span>
+          : <span className="mono">{typeof value === 'object' ? JSON.stringify(value) : String(value)}</span>
+      )}
     </div>
   )
 }
 
-function Section({ title, data, render }) {
+function YesNo({ label, value, yes, no }) {
   return (
-    <>
-      <h3>{title}</h3>
-      {isUnavailable(data) ? <p className="muted">not available</p> : render(data)}
-    </>
+    <Field label={label}>
+      <Badge tone={value ? 'pass' : 'fail'}>{value ? yes : no}</Badge>
+    </Field>
   )
 }
 
-export default function ModelCard() {
-  const fetcher = useCallback(() => api.getModelCard(), [])
-  const { status, data, error } = useFetch(fetcher)
+function Section({ title, sub, data, render, className = '' }) {
+  return (
+    <section className={`card ${className}`}>
+      <h3>{title}</h3>
+      {sub && <p className="sub">{sub}</p>}
+      {isUnavailable(data) ? <p className="muted">not available</p> : render(data)}
+    </section>
+  )
+}
 
-  if (status === 'loading') return <p data-testid="modelcard-loading">Generating Model Card…</p>
-  if (status === 'error')
+const GATE_TONE = { PASS: 'pass', BORDERLINE: 'warn', FAIL: 'fail' }
+
+export default function ModelCard() {
+  const [attempt, setAttempt] = useState(0)
+  const fetcher = useCallback(() => api.getModelCard(), [])
+  const { status, data, error } = useFetch(fetcher, [attempt])
+
+  if (status === 'loading')
     return (
-      <p role="alert" data-testid="modelcard-error">
-        Could not generate the Model Card: {error.message}
-      </p>
+      <div data-testid="modelcard-loading" className="stack" role="status">
+        <p className="muted">Generating Model Card from the live pipeline files. This includes a fresh Security Gate run, so it can take a while.</p>
+        <Skeleton height={110} />
+        <div className="grid grid-2"><Skeleton height={200} /><Skeleton height={200} /></div>
+      </div>
     )
+  if (status === 'error')
+    return <ErrorBox testId="modelcard-error" title="Could not generate the Model Card" error={error} onRetry={() => setAttempt((n) => n + 1)} />
 
   const { identity, intended_use, training_data, performance, security, governance, generated_at } = data
+  const perf = isUnavailable(performance) ? performance : performance?.kddtest_plus
+  const gate = security.security_gate
 
   return (
-    <div data-testid="modelcard-content">
-      <h2>Model Card</h2>
-      <p className="muted">Generated fresh from live pipeline artifacts at {generated_at}</p>
+    <div data-testid="modelcard-content" className="stack">
+      <PageHead title="Model Card">
+        A plain summary of what this model is for, how it was built, and how it scored. Generated fresh from the
+        real pipeline files at {generated_at}, so it cannot drift out of date.
+      </PageHead>
 
-      <h3>Identity</h3>
-      <Field label="Model" value={identity.model_name} />
-      <Field label="Version (model artifact md5, first 12)" value={identity.model_version} />
+      <section className="card">
+        <div className="form-row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h3 style={{ fontSize: 20 }}>{identity.model_name}</h3>
+            <p className="sub" style={{ margin: 0 }}>Version id (first 12 characters of the artifact checksum)</p>
+          </div>
+          <Badge tone="info" large>{identity.model_version}</Badge>
+        </div>
+        <div className="field-row" style={{ marginTop: 10, alignItems: 'flex-start' }}>
+          <span className="field-label">Intended use</span>
+          <span style={{ maxWidth: '60ch', textAlign: 'right' }}>{intended_use.task}</span>
+        </div>
+        <div className="field-row" style={{ alignItems: 'flex-start' }}>
+          <span className="field-label">Out of scope</span>
+          <span className="muted" style={{ maxWidth: '60ch', textAlign: 'right' }}>{intended_use.out_of_scope}</span>
+        </div>
+      </section>
 
-      <h3>Intended use</h3>
-      <p>{intended_use.task}</p>
-      <p className="muted">Out of scope: {intended_use.out_of_scope}</p>
+      <div className="grid grid-2">
+        <Section
+          title="Training data"
+          sub="What the model learned from."
+          data={training_data}
+          render={(d) => (
+            <>
+              <Field label="Dataset" value={d.dataset} />
+              <Field label="Training rows" value={d.train_rows} />
+              <Field label="Test rows" value={d.test_rows} />
+              <Field label="Split fingerprint" value={d.split_hash} />
+            </>
+          )}
+        />
+        <Section
+          title="Governance"
+          sub="Is the decision history trustworthy?"
+          data={governance}
+          render={(g) => (
+            <>
+              <Field label="Audit log entries" value={g.audit_log_entries} />
+              <YesNo label="Audit log chain valid" value={g.audit_log_chain_valid} yes="Valid" no="Broken" />
+            </>
+          )}
+        />
+      </div>
 
       <Section
-        title="Training data"
-        data={training_data}
+        title="Performance on held-out test data"
+        sub="Measured on KDDTest+, which the model never saw during training."
+        data={perf}
         render={(d) => (
-          <>
-            <Field label="Dataset" value={d.dataset} />
-            <Field label="Train rows" value={d.train_rows} />
-            <Field label="Test rows" value={d.test_rows} />
-            <Field label="Split hash" value={d.split_hash} />
-          </>
+          <div className="stat-tiles">
+            <div className="tile"><div className="k">F1</div><div className="v">{d.f1.toFixed(4)}</div></div>
+            <div className="tile"><div className="k">Accuracy</div><div className="v">{d.accuracy.toFixed(4)}</div></div>
+            <div className="tile"><div className="k">Precision</div><div className="v">{d.precision.toFixed(4)}</div></div>
+            <div className="tile"><div className="k">Recall</div><div className="v">{d.recall.toFixed(4)}</div></div>
+          </div>
         )}
       />
 
-      <Section
-        title="Performance (KDDTest+)"
-        data={isUnavailable(performance) ? performance : performance?.kddtest_plus}
-        render={(d) => (
-          <>
-            <Field label="F1" value={d.f1.toFixed(4)} />
-            <Field label="Accuracy" value={d.accuracy.toFixed(4)} />
-            <Field label="Precision" value={d.precision.toFixed(4)} />
-            <Field label="Recall" value={d.recall.toFixed(4)} />
-          </>
-        )}
-      />
-
-      <h3>Security</h3>
-      <Field label="Data scan — recall" value={security.data_scan.recall} />
-      <Field label="Data scan — false positive rate" value={security.data_scan.false_positive_rate} />
-      <Field label="Model integrity (signature verified)" value={security.model_integrity.signature_verified} />
-      <Field label="Adversarial degradation" value={security.adversarial_robustness.degradation} />
-      <Field label="Dependency vulnerabilities (live scan)" value={security.dependency_scan.vulnerability_count} />
-      <Field label="Security Gate decision" value={security.security_gate.decision} />
-      <Field label="Security Gate score" value={security.security_gate.security_score?.toFixed(2)} />
-
-      <h3>Governance</h3>
-      <Field label="Audit log entries" value={governance.audit_log_entries} />
-      <Field label="Audit log chain valid" value={governance.audit_log_chain_valid} />
+      <section className="card">
+        <h3>Security</h3>
+        <p className="sub">The same checks the Security Gate uses.</p>
+        <Field label="Poisoning detector: share of poison caught" value={security.data_scan.recall} />
+        <Field label="Poisoning detector: false alarm rate" value={security.data_scan.false_positive_rate} />
+        <YesNo label="Model integrity (signature verified)" value={security.model_integrity.signature_verified} yes="Verified" no="Not verified" />
+        <Field label="Accuracy lost under adversarial attack" value={security.adversarial_robustness.degradation} />
+        <Field label="Known dependency vulnerabilities (live scan)" value={security.dependency_scan.vulnerability_count} />
+        <Field label="Security Gate decision">
+          <Badge tone={GATE_TONE[gate.decision] || 'info'}>{gate.decision}</Badge>
+        </Field>
+        <Field label="Security Gate score" value={gate.security_score?.toFixed(2)} />
+      </section>
     </div>
   )
 }

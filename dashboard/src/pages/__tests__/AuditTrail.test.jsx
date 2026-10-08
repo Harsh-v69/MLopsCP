@@ -25,7 +25,7 @@ describe('AuditTrail', () => {
     expect(api.getDevToken).toHaveBeenCalledWith('alice', 'SECURITY_REVIEWER')
     expect(api.getAuditLog).toHaveBeenCalledWith('fake.jwt.token')
     expect(screen.getByText('deployment_approved')).toBeInTheDocument()
-    expect(screen.getByText(/chain_valid=true/)).toBeInTheDocument()
+    expect(screen.getByText("Chain intact")).toBeInTheDocument()
   })
 
   it('shows a real 403 denial for an unauthorized role, not a silent empty table', async () => {
