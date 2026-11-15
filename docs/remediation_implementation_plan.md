@@ -16,7 +16,7 @@ earlier milestone's commit.
 |---|---|---|
 | M0 | Baseline stabilization (B-10, B-03, docs, tests) | done except B-03 (waiting on owner decision) and the full attack-lab rerun |
 | M1 | Portable packaging (B-07, section 13) | mostly verified on 2026-11-15: both images build (API via a PyPI mirror), stack starts, health/ready work, non-root, read-only root, only web published, audit log and JWT secret survive down/up. **Not verified:** gate dependency scan inside the container (timed out; pip-audit installs packages from PyPI, which is slow here), Trivy scan (vulnerability DB download failed), clean-checkout build |
-| M2 | Persistent infrastructure (B-08, section 8) | started: schema + migration verified on SQLite and real Postgres; backup/restore proven; MinIO, Redis/Celery, MLflow-on-Postgres, API wiring not done (PyPI downloads of psycopg/boto3/redis time out) |
+| M2 | Persistent infrastructure (B-08, section 8) | core done 2026-11-15: Postgres + Alembic, S3 object store with immutable keys, content-addressed releases, Redis/Celery worker (assessments are jobs), API reads releases and jobs from the database. **Exit criteria verified in Docker:** state survives `down`/`up`, two API replicas return the same release and job, restore into a clean Postgres matches row for row. **Not done:** MLflow on Postgres, audit events in the database, encryption/retention sign-off (KI-26 to KI-29) |
 | M3 | Identity and access (B-01, section 6) | nearly done 2026-11-15: dev-token gated to dev, API hardening, OIDC validation, dashboard PKCE login, every data route requires a role, seven-role matrix with separation-of-duties tests, **signing-key rotation and revocation verified against a local JWKS endpoint (found and fixed a permanent key cache)**. **Not done:** project membership/isolation (needs M2 Postgres wiring), user provisioning; Admin/Operator/Auditor sets await owner confirmation |
 | M4 | Trust architecture (B-02, B-03, B-09, sections 7 and 9) | not started |
 | M5 | Model independence (B-05, section 4) | not started |
@@ -44,7 +44,7 @@ step documented as a clearly separate task, not silently skipped.
 |---|---|---|---|
 | B-03 model signature mismatch (gate shows FAIL) | M4 (needs owner decision) | M3 changes auth only; no test depends on the gate decision | That the gate passes or that the model is trusted |
 | Trivy scan and in-container dependency scan (M1) | M1 follow-up | Images build and run without them | That images are scanned; do not ship before they run |
-| Postgres wiring, MinIO, Redis/Celery (M2) | M2 follow-up | M3 takes roles from Keycloak token claims, not from the database | That roles, projects or audit events are stored in Postgres; project membership (M3) needs M2 wiring first |
+| MLflow on Postgres, audit events in the database, project membership (M2/M3) | M2 follow-up | Roles come from Keycloak token claims; releases and jobs already use Postgres | That audit events or project membership are stored in Postgres, or that releases link to MLflow runs |
 | Slow PyPI route from this network | none | `PIP_INDEX_URL` build arg works around it | That the mirror build is a release build |
 
 Each item is tracked in `docs/known_issues.md`; none is silently dropped.

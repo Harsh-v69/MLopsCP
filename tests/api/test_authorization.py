@@ -10,7 +10,6 @@ from types import SimpleNamespace
 import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
-from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 import src.api.main as main_module
@@ -29,6 +28,9 @@ PROTECTED = {
     ("GET", "/model-card"): "view_model_metrics",
     ("POST", "/predict"): "run_prediction",
     ("POST", "/predict/explain"): "run_prediction",
+    ("GET", "/releases"): "view_model_metrics",
+    ("POST", "/assessments"): "run_assessment",
+    ("GET", "/assessments/{assessment_id}"): "view_security_gate_result",
 }
 
 # Open on purpose: liveness/readiness probes carry no credentials.
@@ -58,7 +60,10 @@ def token(roles=(), top_level_role=None, resource_roles=None, **over):
 
 
 def routes_of(app):
-    return {(m, r.path) for r in app.routes if isinstance(r, APIRoute) for m in r.methods if m != "HEAD"}
+    # app.routes holds an included router as one opaque object, so walking it misses every
+    # route added with include_router. The OpenAPI schema is the flat list of what is served
+    # (the docs URLs are off in production, but openapi() still builds it).
+    return {(m.upper(), p) for p, ops in app.openapi()["paths"].items() for m in ops}
 
 
 @pytest.fixture(scope="module")

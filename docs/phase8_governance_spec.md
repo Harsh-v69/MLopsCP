@@ -20,12 +20,12 @@ spec was written:
 | Role | What it can do (permissions) |
 |---|---|
 | **Data Engineer** | `trigger_ingest`, `trigger_validate`, `view_data_scan_result`, `run_prediction` |
-| **ML Engineer** | `trigger_train`, `trigger_evaluate`, `view_model_metrics`, `run_prediction` |
-| **Security Reviewer** | `view_security_gate_result`, `view_data_scan_result`, `view_model_metrics`, `view_audit_log`, `run_prediction` |
+| **ML Engineer** | `trigger_train`, `trigger_evaluate`, `view_model_metrics`, `run_prediction`, `run_assessment` |
+| **Security Reviewer** | `view_security_gate_result`, `view_data_scan_result`, `view_model_metrics`, `view_audit_log`, `run_prediction`, `run_assessment` |
 | **Approver** | `view_borderline_queue`, `approve_deployment`, `reject_deployment`, `view_security_gate_result`, `view_audit_log`, `run_prediction` |
 | **Auditor** (M3) | `view_audit_log`, `view_security_gate_result`, `view_model_metrics`, `view_data_scan_result` |
 | **Operator** (M3) | `view_security_gate_result`, `view_model_metrics`, `run_prediction` |
-| **Admin** (M3) | `view_audit_log`, `view_security_gate_result`, `view_model_metrics`, `view_data_scan_result`, `view_borderline_queue`, `run_prediction` |
+| **Admin** (M3) | `view_audit_log`, `view_security_gate_result`, `view_model_metrics`, `view_data_scan_result`, `view_borderline_queue`, `run_prediction`, `run_assessment` |
 
 Design rule: **least privilege, no implicit role hierarchy.** There is no
 "admin" role that can do everything — each role's permission set is
@@ -207,3 +207,7 @@ The readiness plan names seven roles. Three were added to the four above. **Thes
 - **Admin:** oversight, not control. Can read everything the reviewers can, see the borderline queue and run predictions. Cannot approve, reject, train, ingest or evaluate. Policy and user-management powers arrive with M6.
 
 Separation of duties, enforced by tests in `tests/governance/test_role_matrix_literal.py`: only the Approver can approve or reject; no role that builds (ingest, validate, train, evaluate) can also approve; Auditor, Admin and Operator hold no mutating action; no role holds every permission. The matrix is now 7 roles x 12 actions = 84 combinations. The same seven names exist as realm roles in `docker/keycloak/mlshield-realm.json`.
+
+## Addendum (2026-11-15, M2): `run_assessment`
+
+Assessments became background jobs, so starting one is a new action, `run_assessment`, granted to ML Engineer, Security Reviewer and Admin. Reading a job's result stays under `view_security_gate_result`, and listing releases under `view_model_metrics`. Starting an assessment does not change the model or approve anything (it records a scan result), so Admin holding it does not breach the rule that Admin has no mutating action. Separation of duties is unchanged: the Approver cannot start an assessment and nobody who builds can approve. The matrix is now 7 roles x 13 actions = 91 combinations (`tests/governance/test_role_matrix_literal.py` pins it by hand).

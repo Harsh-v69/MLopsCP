@@ -35,10 +35,10 @@ ROLES = {DATA_ENGINEER, ML_ENGINEER, SECURITY_REVIEWER, APPROVER, AUDITOR, OPERA
 # each role's set is exactly what the spec says that role does.
 PERMISSIONS = {
     DATA_ENGINEER: {"trigger_ingest", "trigger_validate", "view_data_scan_result", "run_prediction"},
-    ML_ENGINEER: {"trigger_train", "trigger_evaluate", "view_model_metrics", "run_prediction"},
+    ML_ENGINEER: {"trigger_train", "trigger_evaluate", "view_model_metrics", "run_prediction", "run_assessment"},
     SECURITY_REVIEWER: {
         "view_security_gate_result", "view_data_scan_result",
-        "view_model_metrics", "view_audit_log", "run_prediction",
+        "view_model_metrics", "view_audit_log", "run_prediction", "run_assessment",
     },
     APPROVER: {
         "view_borderline_queue", "approve_deployment", "reject_deployment",
@@ -54,7 +54,7 @@ PERMISSIONS = {
     # Configuration powers (policies, users) arrive with M6.
     ADMIN: {
         "view_audit_log", "view_security_gate_result", "view_model_metrics",
-        "view_data_scan_result", "view_borderline_queue", "run_prediction",
+        "view_data_scan_result", "view_borderline_queue", "run_prediction", "run_assessment",
     },
 }
 

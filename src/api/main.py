@@ -20,10 +20,14 @@ import pandas as pd
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
 
+from src.api.deps import requires
 from src.api.hardening import add_hardening, app_env, cors_origins
+from src.api.records import router as records_router
 from src.api.schemas import HealthResponse, PredictRequest, PredictResponse, Prediction
 from src.explainability.shap_explainer import explain_records
+from src.db.session import db_configured, session_scope
 from src.governance.audit_log import DEFAULT_LOG_PATH, AuditLog
 from src.governance.auth import ROLES, authorize, issue_token
 from src.models.train_baseline import CATEGORICAL_FEATURES, NUMERIC_FEATURES
@@ -64,19 +68,7 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "X-Correlation-ID"],
 )
 add_hardening(app, ENV)
-
-def requires(action: str):
-    """Route dependency: 401 without a Bearer header, 403 unless the token's role
-    is permitted `action` (permission matrix in src/governance/auth.py)."""
-    def check(authorization: Optional[str] = Header(default=None)):
-        if not authorization or not authorization.startswith("Bearer "):
-            raise HTTPException(status_code=401, detail="missing or malformed Authorization header")
-        result = authorize(authorization.removeprefix("Bearer ").strip(), action)
-        if not result.allowed:
-            raise HTTPException(status_code=403, detail=result.reason)
-        return result
-    return check
-
+app.include_router(records_router)
 
 # Loaded once at process startup, not per-request. Fail fast, on purpose
 # (see docs/phase4_api_spec.md "Startup behavior") - a process that comes
@@ -118,6 +110,14 @@ def health_ready():
     problems = [f"missing: {p.name}" for p in _READY_FILES if not p.exists()]
     if not os.access(DEFAULT_LOG_PATH.parent, os.W_OK):
         problems.append("audit log directory is not writable")
+    if db_configured():
+        try:
+            with session_scope() as s:
+                s.execute(text("select 1"))
+        except Exception:
+            problems.append("database is unreachable")
+    elif ENV == "production":
+        problems.append("database is not configured")
     if problems:
         return JSONResponse(status_code=503, content={"status": "not ready", "problems": problems})
     return {"status": "ready"}

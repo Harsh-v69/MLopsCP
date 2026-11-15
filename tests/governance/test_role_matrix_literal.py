@@ -10,15 +10,15 @@ from src.governance.auth import ALL_ACTIONS, PERMISSIONS, ROLES
 
 EXPECTED = {
     "DATA_ENGINEER": {"trigger_ingest", "trigger_validate", "view_data_scan_result", "run_prediction"},
-    "ML_ENGINEER": {"trigger_train", "trigger_evaluate", "view_model_metrics", "run_prediction"},
+    "ML_ENGINEER": {"trigger_train", "trigger_evaluate", "view_model_metrics", "run_prediction", "run_assessment"},
     "SECURITY_REVIEWER": {"view_security_gate_result", "view_data_scan_result", "view_model_metrics",
-                          "view_audit_log", "run_prediction"},
+                          "view_audit_log", "run_prediction", "run_assessment"},
     "APPROVER": {"view_borderline_queue", "approve_deployment", "reject_deployment",
                  "view_security_gate_result", "view_audit_log", "run_prediction"},
     "AUDITOR": {"view_audit_log", "view_security_gate_result", "view_model_metrics", "view_data_scan_result"},
     "OPERATOR": {"view_security_gate_result", "view_model_metrics", "run_prediction"},
     "ADMIN": {"view_audit_log", "view_security_gate_result", "view_model_metrics", "view_data_scan_result",
-              "view_borderline_queue", "run_prediction"},
+              "view_borderline_queue", "run_prediction", "run_assessment"},
 }
 
 MUTATING = {"trigger_ingest", "trigger_validate", "trigger_train", "trigger_evaluate",

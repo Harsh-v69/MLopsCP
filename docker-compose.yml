@@ -1,35 +1,122 @@
-# Only `web` is published (to localhost). `api` has no published port but keeps
-# outbound access, which the dependency scan needs to reach the OSV database.
+# Only `web` and `keycloak` are published (to localhost). Everything else is reachable only on the
+# compose network. `api` and `worker` keep outbound access: the dependency scan reaches the OSV database.
+# Secrets come from the git-ignored .env file (KEYCLOAK_ADMIN_PASSWORD, POSTGRES_PASSWORD, S3_SECRET_KEY).
+
+x-app-env: &app-env
+  MLSHIELD_ENV: production  # no /auth/dev-token, no /docs; set explicitly so it is visible
+  # Tokens must come from Keycloak. The issuer is the browser-facing URL; keys are fetched over the internal network.
+  MLSHIELD_OIDC_ISSUER: http://localhost:8081/realms/mlshield
+  MLSHIELD_OIDC_AUDIENCE: mlshield-api
+  MLSHIELD_OIDC_JWKS_URL: http://keycloak:8080/realms/mlshield/protocol/openid-connect/certs
+  MLSHIELD_DB_URL: postgresql+psycopg://mlshield:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/mlshield
+  MLSHIELD_REDIS_URL: redis://redis:6379/0
+  MLSHIELD_S3_ENDPOINT: http://s3:8000
+  MLSHIELD_S3_BUCKET: mlshield
+  MLSHIELD_S3_ACCESS_KEY: mlshield
+  MLSHIELD_S3_SECRET_KEY: ${S3_SECRET_KEY:?set S3_SECRET_KEY in .env}
+  PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}  # pip-audit installs packages to scan them
+
+x-app-image: &app-image
+  build:
+    context: .
+    dockerfile: docker/api.Dockerfile
+    args:
+      PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+  image: mlshield-app
+
+x-app-hardening: &app-hardening
+  read_only: true
+  # exec is required: pip-audit builds and runs a temporary environment under /tmp
+  tmpfs: ["/tmp:rw,exec,nosuid,nodev,size=1g"]
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+
 services:
-  api:
-    build:
-      context: .
-      dockerfile: docker/api.Dockerfile
-      args:
-        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+  postgres:
+    image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      MLSHIELD_ENV: production  # no /auth/dev-token, no /docs; set explicitly so it is visible
-      # Tokens must come from Keycloak. The issuer is the browser-facing URL; keys are fetched over the internal network.
-      MLSHIELD_OIDC_ISSUER: http://localhost:8081/realms/mlshield
-      MLSHIELD_OIDC_AUDIENCE: mlshield-api
-      MLSHIELD_OIDC_JWKS_URL: http://keycloak:8080/realms/mlshield/protocol/openid-connect/certs
-    read_only: true
-    # exec is required: pip-audit builds and runs a temporary environment under /tmp
-    tmpfs: ["/tmp:rw,exec,nosuid,nodev,size=1g"]
-    cap_drop: [ALL]
-    security_opt: ["no-new-privileges:true"]
+      POSTGRES_DB: mlshield
+      POSTGRES_USER: mlshield
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mlshield -d mlshield"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 512m
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]  # the job queue survives a restart
+    volumes: [redisdata:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 256m
+
+  s3:
+    # S3-compatible object store. MinIO no longer publishes pullable images, so this is Zenko
+    # CloudServer, pinned by digest. The application only uses the standard S3 API.
+    image: zenko/cloudserver@sha256:b53e57829cf7df357323e60a19c9f98d2218f1b7ccb1d7cea5761a5a227a9ee3
+    restart: unless-stopped
+    environment:
+      SCALITY_ACCESS_KEY_ID: mlshield
+      SCALITY_SECRET_ACCESS_KEY: ${S3_SECRET_KEY:?set S3_SECRET_KEY in .env}
+      S3BACKEND: file
+      ENDPOINT: s3  # hostname other containers use; CloudServer must know it
+      REMOTE_MANAGEMENT_DISABLE: "1"
+    volumes:
+      - s3_data:/usr/src/app/localData
+      - s3_meta:/usr/src/app/localMetadata
+    mem_limit: 1g
+
+  migrate:
+    # One-shot: apply database migrations, then register the model release (idempotent).
+    <<: [*app-image, *app-hardening]
+    command: ["sh", "-c", "alembic upgrade head && python -m src.releases register"]
+    restart: "no"
+    environment: *app-env
+    depends_on:
+      postgres: { condition: service_healthy }
+      s3: { condition: service_started }
+    volumes: [state:/state]
+
+  api:
+    <<: [*app-image, *app-hardening]
+    restart: unless-stopped
+    environment: *app-env
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
     mem_limit: 2g
     cpus: 2
     volumes:
       - state:/state
       - audit:/app/data/audit
+
+  worker:
+    <<: [*app-image, *app-hardening]
+    command: ["celery", "-A", "src.jobs.celery_app", "worker", "--concurrency", "1", "--loglevel", "INFO"]
+    restart: unless-stopped
+    environment: *app-env
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    mem_limit: 2g
+    volumes: [state:/state]
+
   keycloak-init:
     # One-shot: the named volume is created root-owned, Keycloak runs as uid 1000.
     image: alpine:3.20
     command: ["chown", "-R", "1000:0", "/h2"]
     volumes: [keycloak_data:/h2]
     restart: "no"
+
   keycloak:
     # DEV MODE (start-dev, embedded H2 database, plain HTTP). Fine for local use only;
     # a production Keycloak needs TLS, a real database and a fixed hostname (M10).
@@ -50,6 +137,7 @@ services:
     mem_limit: 1g
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
+
   web:
     build: { context: ., dockerfile: docker/web.Dockerfile }
     restart: unless-stopped
@@ -62,6 +150,10 @@ services:
     mem_limit: 256m
 
 volumes:
+  pgdata:
+  redisdata:
+  s3_data:
+  s3_meta:
   keycloak_data:
   state:
   audit:

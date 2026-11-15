@@ -16,6 +16,8 @@ COPY requirements-api.txt .
 RUN pip install --no-cache-dir --no-index --find-links=/wheels -r requirements-api.txt && rm -rf /wheels
 COPY requirements.txt ./requirements.txt
 COPY src/ ./src/
+COPY alembic.ini ./
+COPY migrations/ ./migrations/
 COPY security/signing_public_key.pem ./security/
 COPY data/processed/ ./data/processed/
 COPY data/raw/README.md ./data/raw/
