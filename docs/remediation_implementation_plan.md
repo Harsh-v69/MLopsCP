@@ -16,7 +16,7 @@ earlier milestone's commit.
 |---|---|---|
 | M0 | Baseline stabilization (B-10, B-03, docs, tests) | done except B-03 (waiting on owner decision) and the full attack-lab rerun |
 | M1 | Portable packaging (B-07, section 13) | files written, **unverified**: API image build failed twice on PyPI download timeouts; web image built; stack never started, no restart test, no Trivy scan |
-| M2 | Persistent infrastructure (B-08, section 8) | not started |
+| M2 | Persistent infrastructure (B-08, section 8) | started: schema + migration verified on SQLite and real Postgres; backup/restore proven; MinIO, Redis/Celery, MLflow-on-Postgres, API wiring not done (PyPI downloads of psycopg/boto3/redis time out) |
 | M3 | Identity and access (B-01, section 6) | not started |
 | M4 | Trust architecture (B-02, B-03, B-09, sections 7 and 9) | not started |
 | M5 | Model independence (B-05, section 4) | not started |
