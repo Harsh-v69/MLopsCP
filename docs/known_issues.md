@@ -13,7 +13,8 @@ items stay in the table with the commit that closed them.
 | KI-05 | M0 | **Shell validation scripts (`scripts/validate_phase*.sh`) not run on Windows.** The project was built on Linux. | Open. Run under Git Bash or Docker in M1/M9. |
 | KI-06 | M0 | **Robustness score overstates robustness.** The gate uses a quick check (1% drop); the project's own stronger black-box attack drops accuracy 1.00 to 0.65. | Open. M6. |
 | KI-07 | M0 | **Poisoning detector evidence is self-generated.** Recall 0.966 and FPR 0.033 were measured on poison the project injected. | Open. M6. |
-| KI-08 | M0 | **`POST /auth/dev-token` issues any role to any caller.** | Open. M3 (must be closed before any deployment). |
+| KI-08 | M0 | **`POST /auth/dev-token` issues any role to any caller.** | Mostly closed in M3 (2026-11-15): the route exists only when `MLSHIELD_ENV=dev`; production is the default and returns 404. Still open: nothing issues tokens in production until OIDC lands, so the dashboard's Audit Trail login does not work in the Docker stack. |
+| KI-18 | M3 | **Rate limit and body-size checks are basic.** Per-process counter on the socket peer (the proxy, in Docker); body limit checks the declared length only. | Open. Shared limiter and proxy-side limits later. |
 | KI-09 | M0 | **Mixed line endings.** Git warns that LF will be replaced by CRLF on several files; tracked files were originally written with LF on Linux. | Open, low priority. Add `.gitattributes` to normalize. |
 | KI-10 | M0 | **Dependency-scan cache is per process.** Two API workers each run their own scan, and a restart rescans (about 90 s, run at startup). | Acceptable for now. Move to PostgreSQL/Redis in M2. |
 | KI-11 | M0 | **Dashboard's first load depends on the warm-up scan.** Until the startup scan finishes, Overview and Model Card wait on it. | Open. Becomes a background job with a job ID in M2. |

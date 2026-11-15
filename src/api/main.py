@@ -21,6 +21,7 @@ from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from src.api.hardening import add_hardening, app_env, cors_origins
 from src.api.schemas import HealthResponse, PredictRequest, PredictResponse, Prediction
 from src.explainability.shap_explainer import explain_records
 from src.governance.audit_log import DEFAULT_LOG_PATH, AuditLog
@@ -49,16 +50,20 @@ async def lifespan(_app):
     yield
 
 
-app = FastAPI(title="MLShield Inference API", version="0.1.0", lifespan=lifespan)
+ENV = app_env()  # raises on a bad value or on production with dev auth set
+# API docs are served only in dev (the docs page loads scripts from a CDN, which
+# the production Content-Security-Policy blocks anyway).
+_docs = {} if ENV == "dev" else {"docs_url": None, "redoc_url": None, "openapi_url": None}
+app = FastAPI(title="MLShield Inference API", version="0.1.0", lifespan=lifespan, **_docs)
 
-# Dev-only: lets the dashboard (a different origin under Vite) call this
-# API during local development. Not a production CORS policy.
+# Origins come from MLSHIELD_CORS_ORIGINS; in dev only, the Vite dev server is allowed by default.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=cors_origins(ENV),
+    allow_methods=["GET", "POST"],
+    allow_headers=["Authorization", "Content-Type", "X-Correlation-ID"],
 )
+add_hardening(app, ENV)
 
 # Loaded once at process startup, not per-request. Fail fast, on purpose
 # (see docs/phase4_api_spec.md "Startup behavior") - a process that comes
@@ -162,17 +167,18 @@ def security_gate() -> dict:
     }
 
 
-@app.post("/auth/dev-token")
-def dev_token(subject: str, role: str) -> dict:
-    """DEV-ONLY stand-in for a real login flow - there is no identity
-    provider in this MVP (same honest treatment as every other local-auth
-    stand-in in this project; see docs/phase8_governance_spec.md and
-    docs/phase9_transparency_spec.md Part C). Issues a real, correctly
-    scoped JWT for the requested role so the dashboard can demonstrate the
-    RBAC-gated audit log without a real IdP."""
-    if role not in ROLES:
-        raise HTTPException(status_code=400, detail=f"unknown role: {role!r} (must be one of {sorted(ROLES)})")
-    return {"token": issue_token(subject, role)}
+if ENV == "dev":  # not registered at all in production, so the route returns 404
+    @app.post("/auth/dev-token")
+    def dev_token(subject: str, role: str) -> dict:
+        """DEV-ONLY stand-in for a real login flow - there is no identity
+        provider in this MVP (same honest treatment as every other local-auth
+        stand-in in this project; see docs/phase8_governance_spec.md and
+        docs/phase9_transparency_spec.md Part C). Issues a real, correctly
+        scoped JWT for the requested role so the dashboard can demonstrate the
+        RBAC-gated audit log without a real IdP."""
+        if role not in ROLES:
+            raise HTTPException(status_code=400, detail=f"unknown role: {role!r} (must be one of {sorted(ROLES)})")
+        return {"token": issue_token(subject, role)}
 
 
 @app.get("/audit-log")

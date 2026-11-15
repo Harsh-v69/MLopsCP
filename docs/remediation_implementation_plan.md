@@ -17,7 +17,7 @@ earlier milestone's commit.
 | M0 | Baseline stabilization (B-10, B-03, docs, tests) | done except B-03 (waiting on owner decision) and the full attack-lab rerun |
 | M1 | Portable packaging (B-07, section 13) | mostly verified on 2026-11-15: both images build (API via a PyPI mirror), stack starts, health/ready work, non-root, read-only root, only web published, audit log and JWT secret survive down/up. **Not verified:** gate dependency scan inside the container (timed out; pip-audit installs packages from PyPI, which is slow here), Trivy scan (vulnerability DB download failed), clean-checkout build |
 | M2 | Persistent infrastructure (B-08, section 8) | started: schema + migration verified on SQLite and real Postgres; backup/restore proven; MinIO, Redis/Celery, MLflow-on-Postgres, API wiring not done (PyPI downloads of psycopg/boto3/redis time out) |
-| M3 | Identity and access (B-01, section 6) | not started |
+| M3 | Identity and access (B-01, section 6) | started 2026-11-15: dev-token removed from production (route not registered, startup refuses dev auth in production), API hardening (size limit, rate limit, CORS allowlist from env, security headers, correlation IDs, safe errors, docs off in production), 9 new tests. **Not done:** Keycloak/OIDC and PKCE login, 7-role matrix, project membership/isolation, escalation tests, per-route authorization tests, dashboard login |
 | M4 | Trust architecture (B-02, B-03, B-09, sections 7 and 9) | not started |
 | M5 | Model independence (B-05, section 4) | not started |
 | M6 | Evidence quality, policy engine (sections 5 and 15) | not started |

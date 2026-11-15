@@ -8,6 +8,8 @@ services:
       args:
         PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
     restart: unless-stopped
+    environment:
+      MLSHIELD_ENV: production  # no /auth/dev-token, no /docs; set explicitly so it is visible
     read_only: true
     # exec is required: pip-audit builds and runs a temporary environment under /tmp
     tmpfs: ["/tmp:rw,exec,nosuid,nodev,size=1g"]
