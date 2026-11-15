@@ -27,7 +27,9 @@ export function ErrorBox({ testId, title, error, onRetry }) {
       <strong>{title}</strong>
       <div>{error.message}</div>
       <div className="muted" style={{ margin: '6px 0 10px' }}>
-        Check that the MLShield API is running on localhost:8000 and try again.
+        {error.status === 403
+          ? 'Your role does not have access to this page. Sign in with a different account to see it.'
+          : 'Check that the MLShield API is running and try again.'}
       </div>
       {onRetry && (
         <button className="ghost" onClick={onRetry}>

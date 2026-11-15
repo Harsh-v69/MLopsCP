@@ -31,15 +31,15 @@ ROLES = {DATA_ENGINEER, ML_ENGINEER, SECURITY_REVIEWER, APPROVER}
 # Locked in docs/phase8_governance_spec.md Part A. No implicit hierarchy -
 # each role's set is exactly what the spec says that role does.
 PERMISSIONS = {
-    DATA_ENGINEER: {"trigger_ingest", "trigger_validate", "view_data_scan_result"},
-    ML_ENGINEER: {"trigger_train", "trigger_evaluate", "view_model_metrics"},
+    DATA_ENGINEER: {"trigger_ingest", "trigger_validate", "view_data_scan_result", "run_prediction"},
+    ML_ENGINEER: {"trigger_train", "trigger_evaluate", "view_model_metrics", "run_prediction"},
     SECURITY_REVIEWER: {
         "view_security_gate_result", "view_data_scan_result",
-        "view_model_metrics", "view_audit_log",
+        "view_model_metrics", "view_audit_log", "run_prediction",
     },
     APPROVER: {
         "view_borderline_queue", "approve_deployment", "reject_deployment",
-        "view_security_gate_result", "view_audit_log",
+        "view_security_gate_result", "view_audit_log", "run_prediction",
     },
 }
 

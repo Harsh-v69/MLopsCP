@@ -51,7 +51,7 @@ def test_rbac_matrix(role, action):
 
 
 def test_matrix_covers_all_11_actions():
-    assert len(ALL_ACTIONS) == 11
+    assert len(ALL_ACTIONS) == 12
 
 
 def test_matrix_covers_all_4_roles():

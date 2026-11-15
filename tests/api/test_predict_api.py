@@ -15,10 +15,13 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
+from src.governance.auth import issue_token
+
 from src.api.main import FEATURE_COLUMNS, _model, app
 from src.data.load_dataset import TEST_FILE, load_raw
 
-client = TestClient(app)
+# SECURITY_REVIEWER may run predictions, view the gate result and view model metrics.
+client = TestClient(app, headers={"Authorization": f"Bearer {issue_token('test-user', 'SECURITY_REVIEWER')}"})
 
 
 @pytest.fixture(scope="module")

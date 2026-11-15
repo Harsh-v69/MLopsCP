@@ -1,13 +1,13 @@
 import { render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import AuditTrail from '../AuditTrail'
+import { SignInPanel } from '../SignIn'
 
 afterEach(() => vi.unstubAllEnvs())
 
-describe('AuditTrail in oidc mode', () => {
-  it('offers a real sign-in, not the demo role picker, when signed out', () => {
+describe('SignInPanel in oidc mode', () => {
+  it('offers the identity-provider sign-in, not the demo role picker', () => {
     vi.stubEnv('VITE_AUTH_MODE', 'oidc')
-    render(<AuditTrail />)
+    render(<SignInPanel />)
     expect(screen.getByTestId('sign-in')).toBeInTheDocument()
     expect(screen.queryByTestId('role-select')).not.toBeInTheDocument()
   })

@@ -2,13 +2,17 @@
 // No caching, no client-side recomputation of any value the backend
 // already computed - the whole point of Phase 9's gate is that the
 // dashboard shows exactly what the backend says, not a derived copy.
+import { currentSession, signOutLocal } from './auth'
+
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000'
 
 async function request(path, options = {}) {
+  const session = currentSession()
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
+      ...(session ? { Authorization: `Bearer ${session.token}` } : {}),
       ...options.headers,
     },
   })
@@ -21,6 +25,8 @@ async function request(path, options = {}) {
     } catch {
       // response wasn't JSON - keep statusText
     }
+    // The server rejected the token itself (expired, bad signature...): drop the session.
+    if (response.status === 403 && /^(invalid token|token expired)/.test(detail)) signOutLocal()
     const error = new Error(detail)
     error.status = response.status
     throw error
@@ -32,8 +38,7 @@ async function request(path, options = {}) {
 export const api = {
   getSecurityGate: () => request('/security-gate'),
   getModelCard: () => request('/model-card'),
-  getAuditLog: (token) =>
-    request('/audit-log', { headers: { Authorization: `Bearer ${token}` } }),
+  getAuditLog: () => request('/audit-log'),
   getDevToken: (subject, role) =>
     request(`/auth/dev-token?subject=${encodeURIComponent(subject)}&role=${encodeURIComponent(role)}`, {
       method: 'POST',

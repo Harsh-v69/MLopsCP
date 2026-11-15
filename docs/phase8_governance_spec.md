@@ -19,10 +19,10 @@ spec was written:
 
 | Role | What it can do (permissions) |
 |---|---|
-| **Data Engineer** | `trigger_ingest`, `trigger_validate`, `view_data_scan_result` |
-| **ML Engineer** | `trigger_train`, `trigger_evaluate`, `view_model_metrics` |
-| **Security Reviewer** | `view_security_gate_result`, `view_data_scan_result`, `view_model_metrics`, `view_audit_log` |
-| **Approver** | `view_borderline_queue`, `approve_deployment`, `reject_deployment`, `view_security_gate_result`, `view_audit_log` |
+| **Data Engineer** | `trigger_ingest`, `trigger_validate`, `view_data_scan_result`, `run_prediction` |
+| **ML Engineer** | `trigger_train`, `trigger_evaluate`, `view_model_metrics`, `run_prediction` |
+| **Security Reviewer** | `view_security_gate_result`, `view_data_scan_result`, `view_model_metrics`, `view_audit_log`, `run_prediction` |
+| **Approver** | `view_borderline_queue`, `approve_deployment`, `reject_deployment`, `view_security_gate_result`, `view_audit_log`, `run_prediction` |
 
 Design rule: **least privilege, no implicit role hierarchy.** There is no
 "admin" role that can do everything — each role's permission set is
@@ -190,3 +190,7 @@ role.
    tamper-and-recompute caught by `verify_against_anchors()` specifically.
 3. Every BORDERLINE case in testing produces a complete, attributable
    approval record (actor + role + timestamp + decision + justification).
+
+## Addendum (2026-11-15, M3): `run_prediction`
+
+The API's `/predict` and `/predict/explain` routes had no matching permission, so they were open to anyone. A twelfth action, `run_prediction`, was added and granted to all four roles (any signed-in user with a known role may ask the model for a prediction; no role gains anything else). The RBAC matrix is now 4 roles x 12 actions = 48 combinations. `/security-gate` requires `view_security_gate_result`, `/model-card` requires `view_model_metrics`, `/audit-log` requires `view_audit_log`. Health routes stay public.

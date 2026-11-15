@@ -7,13 +7,16 @@ import warnings
 import pytest
 from fastapi.testclient import TestClient
 
+from src.governance.auth import issue_token
+
 warnings.filterwarnings("ignore")
 
 from src.api.main import app
 from src.data.load_dataset import TEST_FILE, load_raw
 from src.models.train_baseline import CATEGORICAL_FEATURES, NUMERIC_FEATURES
 
-client = TestClient(app)
+# SECURITY_REVIEWER may run predictions, view the gate result and view model metrics.
+client = TestClient(app, headers={"Authorization": f"Bearer {issue_token('test-user', 'SECURITY_REVIEWER')}"})
 
 
 @pytest.fixture(scope="module")
@@ -94,7 +97,7 @@ def test_security_gate_endpoint_shape():
 # --- /audit-log (RBAC-gated) ----------------------------------------------
 
 def test_audit_log_no_auth_header_returns_401():
-    response = client.get("/audit-log")
+    response = TestClient(app).get("/audit-log")  # no default Authorization header
     assert response.status_code == 401
 
 

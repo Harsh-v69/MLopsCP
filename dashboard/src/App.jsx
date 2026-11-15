@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import Overview from './pages/Overview'
 import AuditTrail from './pages/AuditTrail'
+import { SessionChip, SignInPanel } from './SignIn'
+import { useSession } from './useSession'
 import ModelCard from './pages/ModelCard'
 import Explain from './pages/Explain'
 
@@ -12,16 +14,8 @@ const TABS = {
 }
 
 export default function App() {
-  // After a login redirect, land on the Audit Trail tab (auth.js sets the hint once).
-  const [active, setActive] = useState(() => {
-    try {
-      const hint = sessionStorage.getItem('mlshield.tab')
-      sessionStorage.removeItem('mlshield.tab')
-      return hint && TABS[hint] ? hint : 'overview'
-    } catch {
-      return 'overview'
-    }
-  })
+  const [active, setActive] = useState('overview')
+  const session = useSession()
   const ActiveComponent = TABS[active].component
 
   return (
@@ -33,6 +27,8 @@ export default function App() {
           <p>Every model release is scanned, scored and recorded. All values come live from the backend.</p>
         </div>
       </header>
+
+      {session && <SessionChip session={session} />}
 
       <nav aria-label="Sections">
         {Object.entries(TABS).map(([key, tab]) => (
@@ -48,8 +44,9 @@ export default function App() {
         ))}
       </nav>
 
-      <main key={active}>
-        <ActiveComponent onNavigate={setActive} />
+      {/* Every data route needs a role, so nothing is fetched until someone is signed in. */}
+      <main key={`${active}-${session ? session.token.slice(-12) : 'out'}`}>
+        {session ? <ActiveComponent onNavigate={setActive} /> : <SignInPanel />}
       </main>
     </div>
   )

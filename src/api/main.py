@@ -17,7 +17,7 @@ from typing import Optional
 
 import joblib
 import pandas as pd
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -64,6 +64,19 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "X-Correlation-ID"],
 )
 add_hardening(app, ENV)
+
+def requires(action: str):
+    """Route dependency: 401 without a Bearer header, 403 unless the token's role
+    is permitted `action` (permission matrix in src/governance/auth.py)."""
+    def check(authorization: Optional[str] = Header(default=None)):
+        if not authorization or not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="missing or malformed Authorization header")
+        result = authorize(authorization.removeprefix("Bearer ").strip(), action)
+        if not result.allowed:
+            raise HTTPException(status_code=403, detail=result.reason)
+        return result
+    return check
+
 
 # Loaded once at process startup, not per-request. Fail fast, on purpose
 # (see docs/phase4_api_spec.md "Startup behavior") - a process that comes
@@ -115,7 +128,7 @@ def health() -> HealthResponse:
     return HealthResponse(status="ok", model_loaded=_model is not None, model_source=str(MODEL_PATH))
 
 
-@app.post("/predict", response_model=PredictResponse)
+@app.post("/predict", response_model=PredictResponse, dependencies=[Depends(requires("run_prediction"))])
 def predict(request: PredictRequest) -> PredictResponse:
     rows = [record.model_dump() for record in request.records]
     df = pd.DataFrame(rows, columns=FEATURE_COLUMNS)
@@ -133,7 +146,7 @@ def predict(request: PredictRequest) -> PredictResponse:
     return PredictResponse(predictions=predictions)
 
 
-@app.post("/predict/explain")
+@app.post("/predict/explain", dependencies=[Depends(requires("run_prediction"))])
 def predict_explain(request: PredictRequest) -> dict:
     """SHAP explanation per record - same request schema as /predict
     (docs/phase4_api_spec.md), inherits its validation exactly. See
@@ -142,7 +155,7 @@ def predict_explain(request: PredictRequest) -> dict:
     return {"explanations": explain_records(rows)}
 
 
-@app.get("/model-card")
+@app.get("/model-card", dependencies=[Depends(requires("view_model_metrics"))])
 def model_card() -> dict:
     """Regenerated fresh on every call from real pipeline artifacts - see
     docs/phase9_transparency_spec.md Part B for the exact source of every
@@ -150,7 +163,7 @@ def model_card() -> dict:
     return generate_model_card()
 
 
-@app.get("/security-gate")
+@app.get("/security-gate", dependencies=[Depends(requires("view_security_gate_result"))])
 def security_gate() -> dict:
     """The live Phase 7 gate result - what the dashboard's Overview page
     reads, so 'the dashboard matches the backend' (Phase 9 gate) is
@@ -181,19 +194,11 @@ if ENV == "dev":  # not registered at all in production, so the route returns 40
         return {"token": issue_token(subject, role)}
 
 
-@app.get("/audit-log")
-def audit_log(authorization: Optional[str] = Header(default=None)) -> dict:
+@app.get("/audit-log", dependencies=[Depends(requires("view_audit_log"))])
+def audit_log() -> dict:
     """RBAC-gated per docs/phase8_governance_spec.md's permission matrix
     (view_audit_log: SECURITY_REVIEWER, APPROVER only). Returns a real
     403, not a filtered/empty response, for an unauthorized role."""
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="missing or malformed Authorization header")
-
-    token = authorization.removeprefix("Bearer ").strip()
-    auth_result = authorize(token, "view_audit_log")
-    if not auth_result.allowed:
-        raise HTTPException(status_code=403, detail=auth_result.reason)
-
     log = AuditLog()
     chain = log.verify_chain()
     return {

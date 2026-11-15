@@ -5,6 +5,7 @@ below, so a new privileged route cannot ship without an authorization test.
 """
 import importlib
 import time
+from types import SimpleNamespace
 
 import jwt
 import pytest
@@ -22,15 +23,16 @@ KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
 # Every route must be listed in exactly one place. PROTECTED maps a route to the
 # action the permission matrix (docs/phase8_governance_spec.md) requires.
-PROTECTED = {("GET", "/audit-log"): "view_audit_log"}
-
-# Open on purpose today. KI-21: /security-gate and /model-card expose security
-# details without a login; requiring one is an open product decision.
-PUBLIC = {
-    ("GET", "/health"), ("GET", "/health/live"), ("GET", "/health/ready"),
-    ("POST", "/predict"), ("POST", "/predict/explain"),
-    ("GET", "/model-card"), ("GET", "/security-gate"),
+PROTECTED = {
+    ("GET", "/audit-log"): "view_audit_log",
+    ("GET", "/security-gate"): "view_security_gate_result",
+    ("GET", "/model-card"): "view_model_metrics",
+    ("POST", "/predict"): "run_prediction",
+    ("POST", "/predict/explain"): "run_prediction",
 }
+
+# Open on purpose: liveness/readiness probes carry no credentials.
+PUBLIC = {("GET", "/health"), ("GET", "/health/live"), ("GET", "/health/ready")}
 DEV_ONLY = {("POST", "/auth/dev-token")}
 
 
@@ -67,6 +69,12 @@ def prod():
     mp.setenv("MLSHIELD_OIDC_AUDIENCE", AUD)
     mp.setattr(oidc, "_jwks_client", lambda: _Jwks())
     module = importlib.reload(main_module)
+    # Authorization is what is under test, not the (slow) gate scan or SHAP.
+    gate = SimpleNamespace(decision="PASS", security_score=100.0, data_score=100.0, model_score=100.0,
+                           dependency_score=100.0, integrity_component=1.0, details={})
+    mp.setattr(module, "run_gate", lambda: gate)
+    mp.setattr(module, "generate_model_card", lambda: {})
+    mp.setattr(module, "explain_records", lambda rows: [])
     yield module
     mp.undo()
     importlib.reload(main_module)
@@ -135,9 +143,12 @@ def test_invalid_tokens_are_403(client, method, path, name, tok):
 @pytest.mark.parametrize("method,path", sorted(PROTECTED))
 @pytest.mark.parametrize("role", sorted(ROLES))
 def test_each_role_gets_exactly_what_the_matrix_allows(client, method, path, role):
-    expected = 200 if PROTECTED[(method, path)] in PERMISSIONS[role] else 403
+    permitted = PROTECTED[(method, path)] in PERMISSIONS[role]
     r = client.request(method, path, headers={"Authorization": f"Bearer {token([role])}"})
-    assert r.status_code == expected, f"{role} on {method} {path}"
+    if permitted:
+        assert r.status_code not in (401, 403), f"{role} should be let through {method} {path}, got {r.status_code}"
+    else:
+        assert r.status_code == 403, f"{role} should be denied {method} {path}, got {r.status_code}"
 
 
 def test_audit_log_matches_the_phase8_spec_exactly(client):
@@ -150,6 +161,22 @@ def test_denial_says_why_without_leaking_internals(client):
     r = client.get("/audit-log", headers={"Authorization": f"Bearer {token(['DATA_ENGINEER'])}"})
     assert r.status_code == 403
     assert "no role permits view_audit_log" in r.json()["detail"]
+
+
+@pytest.mark.parametrize("path,allowed", [
+    ("/security-gate", {"SECURITY_REVIEWER", "APPROVER"}),
+    ("/model-card", {"ML_ENGINEER", "SECURITY_REVIEWER"}),
+])
+def test_read_routes_match_the_spec_exactly(client, path, allowed):
+    got = {r for r in ROLES
+           if client.get(path, headers={"Authorization": f"Bearer {token([r])}"}).status_code == 200}
+    assert got == allowed
+
+
+def test_every_role_may_run_predictions(client):
+    for role in ROLES:
+        r = client.post("/predict", json={}, headers={"Authorization": f"Bearer {token([role])}"})
+        assert r.status_code == 422, role  # past authorization, rejected only for the empty body
 
 
 # --- privilege escalation attempts -----------------------------------------

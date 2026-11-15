@@ -29,6 +29,8 @@ warnings.filterwarnings("ignore")
 
 from fastapi.testclient import TestClient
 
+from src.governance.auth import issue_token
+
 from src.api.main import app
 from src.security.gate import (
     compute_data_score,
@@ -39,7 +41,8 @@ from src.security.gate import (
     run_gate,
 )
 
-client = TestClient(app)
+# SECURITY_REVIEWER may run predictions, view the gate result and view model metrics.
+client = TestClient(app, headers={"Authorization": f"Bearer {issue_token('test-user', 'SECURITY_REVIEWER')}"})
 
 
 def _run_formula(recall, fpr, integrity_ok, clean_acc, adv_acc, n_vulns):

@@ -11,6 +11,19 @@ export const authMode = () => import.meta.env.VITE_AUTH_MODE || 'dev'
 const KEY = 'mlshield.pkce'
 let session = null // { token, claims }
 let lastError = null
+const listeners = new Set()
+const notify = () => listeners.forEach((fn) => fn())
+export const subscribe = (fn) => {
+  listeners.add(fn)
+  return () => listeners.delete(fn)
+}
+
+export const ROLE_LABELS = {
+  DATA_ENGINEER: 'Data Engineer',
+  ML_ENGINEER: 'ML Engineer',
+  SECURITY_REVIEWER: 'Security Reviewer',
+  APPROVER: 'Approver',
+}
 
 const b64url = (bytes) =>
   btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
@@ -85,16 +98,25 @@ export async function initAuth() {
     const body = await res.json()
     if (!res.ok || !body.access_token) throw new Error(body.error_description || body.error || res.statusText)
     session = { token: body.access_token, claims: decodeClaims(body.access_token) }
-    sessionStorage.setItem('mlshield.tab', 'audit')
   } catch (e) {
     lastError = `Sign-in failed: ${e.message}`
   }
+  notify()
 }
 
+// Stable reference between changes (safe for useSyncExternalStore); an expired token reads as signed out.
 export function currentSession() {
-  if (session && session.claims && session.claims.exp * 1000 > Date.now()) return session
-  session = null
-  return null
+  return session && session.claims && session.claims.exp * 1000 > Date.now() ? session : null
+}
+
+// Local demo only: the dev-mode API issues HS256 tokens, which carry a single `role` claim.
+export function setDevSession(token) {
+  const claims = decodeClaims(token) || {}
+  session = {
+    token,
+    claims: { ...claims, preferred_username: claims.sub, realm_access: { roles: claims.role ? [claims.role] : [] } },
+  }
+  notify()
 }
 
 export const takeAuthError = () => {
@@ -105,10 +127,12 @@ export const takeAuthError = () => {
 
 export function signOutLocal() {
   session = null
+  notify()
 }
 
 export function logout() {
   session = null
+  notify()
   const params = new URLSearchParams({ client_id: CLIENT_ID, post_logout_redirect_uri: redirectUri() })
   window.location.assign(`${endpoint('logout')}?${params}`)
 }
