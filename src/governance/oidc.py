@@ -18,12 +18,23 @@ def oidc_configured() -> bool:
     return bool(os.environ.get("MLSHIELD_OIDC_ISSUER") and os.environ.get("MLSHIELD_OIDC_AUDIENCE"))
 
 
+def build_client(url: str, lifespan: float = 300, cooldown: float = 30) -> PyJWKClient:
+    """Key handling that survives rotation and honours revocation:
+    - the key set is cached for `lifespan` seconds, so a key the provider removes stops
+      being trusted within that window (and the provider being briefly down is tolerated);
+    - an unknown key id forces at most one refetch per `cooldown` seconds, so forged key
+      ids cannot turn into a request flood against the provider;
+    - no per-key cache: PyJWT's cache_keys=True never expires, which would keep trusting a
+      revoked key until the process restarts."""
+    return PyJWKClient(url, cache_keys=False, lifespan=lifespan, cooldown_duration=cooldown, timeout=5)
+
+
 def _jwks_client() -> PyJWKClient:
     global _client
     if _client is None:
         issuer = os.environ["MLSHIELD_OIDC_ISSUER"].rstrip("/")
         url = os.environ.get("MLSHIELD_OIDC_JWKS_URL", f"{issuer}/protocol/openid-connect/certs")
-        _client = PyJWKClient(url, cache_keys=True, lifespan=300, timeout=5)
+        _client = build_client(url)
     return _client
 
 
