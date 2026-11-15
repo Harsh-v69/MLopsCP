@@ -28,7 +28,7 @@ def _token_for(role, subject="test-user"):
     return issue_token(subject, role, secret=TEST_SECRET)
 
 
-# --- Full matrix: 4 roles x 11 actions = 44 combinations ------------------
+# --- Full matrix: 7 roles x 12 actions = 84 combinations ------------------
 
 MATRIX_CASES = [
     (role, action)
@@ -50,12 +50,12 @@ def test_rbac_matrix(role, action):
     assert result.subject == "test-user"
 
 
-def test_matrix_covers_all_11_actions():
+def test_matrix_covers_all_12_actions():
     assert len(ALL_ACTIONS) == 12
 
 
-def test_matrix_covers_all_4_roles():
-    assert len(ROLES) == 4
+def test_matrix_covers_all_7_roles():
+    assert len(ROLES) == 7
 
 
 # --- Fail-closed cases beyond the plain matrix -----------------------------

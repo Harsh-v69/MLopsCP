@@ -11,7 +11,10 @@
       { "name": "DATA_ENGINEER" },
       { "name": "ML_ENGINEER" },
       { "name": "SECURITY_REVIEWER" },
-      { "name": "APPROVER" }
+      { "name": "APPROVER" },
+      { "name": "AUDITOR" },
+      { "name": "OPERATOR" },
+      { "name": "ADMIN" }
     ]
   },
   "clients": [

@@ -25,8 +25,11 @@ DATA_ENGINEER = "DATA_ENGINEER"
 ML_ENGINEER = "ML_ENGINEER"
 SECURITY_REVIEWER = "SECURITY_REVIEWER"
 APPROVER = "APPROVER"
+AUDITOR = "AUDITOR"
+OPERATOR = "OPERATOR"
+ADMIN = "ADMIN"
 
-ROLES = {DATA_ENGINEER, ML_ENGINEER, SECURITY_REVIEWER, APPROVER}
+ROLES = {DATA_ENGINEER, ML_ENGINEER, SECURITY_REVIEWER, APPROVER, AUDITOR, OPERATOR, ADMIN}
 
 # Locked in docs/phase8_governance_spec.md Part A. No implicit hierarchy -
 # each role's set is exactly what the spec says that role does.
@@ -40,6 +43,18 @@ PERMISSIONS = {
     APPROVER: {
         "view_borderline_queue", "approve_deployment", "reject_deployment",
         "view_security_gate_result", "view_audit_log", "run_prediction",
+    },
+    # M3 additions (docs/phase8_governance_spec.md addendum). Read-only oversight.
+    AUDITOR: {
+        "view_audit_log", "view_security_gate_result", "view_model_metrics", "view_data_scan_result",
+    },
+    # Runs and watches the service. Deployment and rollback powers arrive with M7.
+    OPERATOR: {"view_security_gate_result", "view_model_metrics", "run_prediction"},
+    # Oversight, not control: cannot approve, reject, train or ingest (separation of duties).
+    # Configuration powers (policies, users) arrive with M6.
+    ADMIN: {
+        "view_audit_log", "view_security_gate_result", "view_model_metrics",
+        "view_data_scan_result", "view_borderline_queue", "run_prediction",
     },
 }
 

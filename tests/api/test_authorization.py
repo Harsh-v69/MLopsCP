@@ -154,7 +154,7 @@ def test_each_role_gets_exactly_what_the_matrix_allows(client, method, path, rol
 def test_audit_log_matches_the_phase8_spec_exactly(client):
     allowed = {r for r in ROLES
                if client.get("/audit-log", headers={"Authorization": f"Bearer {token([r])}"}).status_code == 200}
-    assert allowed == {"SECURITY_REVIEWER", "APPROVER"}
+    assert allowed == {"SECURITY_REVIEWER", "APPROVER", "AUDITOR", "ADMIN"}
 
 
 def test_denial_says_why_without_leaking_internals(client):
@@ -164,8 +164,8 @@ def test_denial_says_why_without_leaking_internals(client):
 
 
 @pytest.mark.parametrize("path,allowed", [
-    ("/security-gate", {"SECURITY_REVIEWER", "APPROVER"}),
-    ("/model-card", {"ML_ENGINEER", "SECURITY_REVIEWER"}),
+    ("/security-gate", {"SECURITY_REVIEWER", "APPROVER", "AUDITOR", "OPERATOR", "ADMIN"}),
+    ("/model-card", {"ML_ENGINEER", "SECURITY_REVIEWER", "AUDITOR", "OPERATOR", "ADMIN"}),
 ])
 def test_read_routes_match_the_spec_exactly(client, path, allowed):
     got = {r for r in ROLES
@@ -173,8 +173,10 @@ def test_read_routes_match_the_spec_exactly(client, path, allowed):
     assert got == allowed
 
 
-def test_every_role_may_run_predictions(client):
-    for role in ROLES:
+def test_roles_that_may_run_predictions(client):
+    may = {"DATA_ENGINEER", "ML_ENGINEER", "SECURITY_REVIEWER", "APPROVER", "OPERATOR", "ADMIN"}
+    assert client.post("/predict", json={}, headers={"Authorization": f"Bearer {token(['AUDITOR'])}"}).status_code == 403
+    for role in may:
         r = client.post("/predict", json={}, headers={"Authorization": f"Bearer {token([role])}"})
         assert r.status_code == 422, role  # past authorization, rejected only for the empty body
 

@@ -23,6 +23,9 @@ export const ROLE_LABELS = {
   ML_ENGINEER: 'ML Engineer',
   SECURITY_REVIEWER: 'Security Reviewer',
   APPROVER: 'Approver',
+  AUDITOR: 'Auditor',
+  OPERATOR: 'Operator',
+  ADMIN: 'Admin',
 }
 
 const b64url = (bytes) =>
