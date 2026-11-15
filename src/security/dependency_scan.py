@@ -29,7 +29,7 @@ def run_pip_audit(requirements_path: Path) -> dict:
     test_fail_closed_dependency_scan_raises during Phase 7 development -
     see progress.md)."""
     result = subprocess.run(
-        ["pip-audit", "-r", str(requirements_path), "--format", "json"],
+        [sys.executable, "-m", "pip_audit", "-r", str(requirements_path), "--format", "json"],
         capture_output=True,
         text=True,
     )
