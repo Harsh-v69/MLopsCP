@@ -85,8 +85,8 @@ never rewritten into the original tagged commit.
 | **Phase 7 — Security Scoring & Gate Decision Logic** | ✅ Complete — gate passed (see below) |
 | **Phase 8 — Governance Layer (RBAC + Audit Log)** | ✅ Complete — gate passed (see below) |
 | **Phase 9 — Transparency Layer (Dashboard, Model Cards, SHAP)** | ✅ Complete — gate passed (see below) |
-| Phase 10 — Attack Laboratory & Recovery Cycle | Not started |
-| Phase 11 — Final End-to-End Validation | Not started |
+| **Phase 10 — Attack Laboratory & Recovery Cycle** | ✅ Complete — gate passed (6 attack-lab runs, see Phase 10 section) |
+| Phase 11 — Final End-to-End Validation | Not started as originally scoped; superseded by the pre-deployment remediation programme (`docs/remediation_implementation_plan.md`, milestones M0 to M10) |
 
 ---
 
@@ -1488,8 +1488,9 @@ be selectively pruned without breaking it, so all 78 are kept as-is;
 
 ### What's left
 
-All 12 phases of the original plan (Phase 0 through Phase 10, plus the
-initial Phase 0 setup) are now complete and gate-verified. This project
+Phases 0 through 10 of the original plan are complete and gate-verified
+(Phase 11, a final end-to-end validation, was never run and is superseded
+by `docs/remediation_implementation_plan.md`). This project
 demonstrates a full MLOps security lifecycle: data/model versioning
 (DVC), orchestration (Airflow), experiment tracking (MLflow), serving
 (FastAPI), live poisoning/tampering/evasion detection, a weighted

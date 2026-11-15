@@ -6,14 +6,23 @@ cyclonedx-py. Both are invoked as subprocesses (their stable, documented
 CLI) rather than internal APIs, since neither project guarantees a stable
 importable API.
 """
+import hashlib
 import json
+import os
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+# pip-audit and cyclonedx-py print non-ASCII (e.g. vulnerability descriptions).
+# On Windows, piped output defaults to the legacy code page and the write fails,
+# which left stdout empty and made a working scan look like a scanner failure.
+# Force UTF-8 on both ends so output is the same on every OS.
+_UTF8_ENV = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
 
 
 def run_pip_audit(requirements_path: Path) -> dict:
@@ -28,17 +37,27 @@ def run_pip_audit(requirements_path: Path) -> dict:
     a failed scan raising, not silently reporting 0 findings (caught by
     test_fail_closed_dependency_scan_raises during Phase 7 development -
     see progress.md)."""
-    result = subprocess.run(
-        [sys.executable, "-m", "pip_audit", "-r", str(requirements_path), "--format", "json"],
-        capture_output=True,
-        text=True,
-    )
-    try:
-        return json.loads(result.stdout)
-    except json.JSONDecodeError as e:
-        raise RuntimeError(
-            f"pip-audit did not produce parseable output (exit code {result.returncode}): {result.stderr.strip()}"
-        ) from e
+    # Results go to a file (-o), not stdout: when run from the API server,
+    # pip-audit's stdout came back empty even though the scan completed.
+    with tempfile.TemporaryDirectory() as tmp:
+        out_path = Path(tmp) / "audit.json"
+        result = subprocess.run(
+            [sys.executable, "-m", "pip_audit", "-r", str(requirements_path),
+             "--format", "json", "-o", str(out_path)],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            env=_UTF8_ENV,
+            stdin=subprocess.DEVNULL,  # a server has no usable stdin; never inherit it
+        )
+        try:
+            raw = out_path.read_text(encoding="utf-8") if out_path.exists() else result.stdout
+            return json.loads(raw)
+        except json.JSONDecodeError as e:
+            raise RuntimeError(
+                f"pip-audit did not produce parseable output (exit code {result.returncode}): "
+                f"{result.stderr.strip()[-500:]}"
+            ) from e
 
 
 _AUDIT_CACHE_TTL_SECONDS = 3600
@@ -58,8 +77,9 @@ def run_pip_audit_cached(requirements_path: Path, ttl: float = _AUDIT_CACHE_TTL_
     path = Path(requirements_path)
     with _audit_lock:
         try:
-            stat = path.stat()
-            key = (str(path.resolve()), stat.st_mtime_ns, stat.st_size)
+            # Keyed on the exact content, so a changed dependency set can never be
+            # served a stale scan (touching the file without changing it still hits).
+            key = (str(path.resolve()), hashlib.sha256(path.read_bytes()).hexdigest())
         except OSError:
             key = None  # missing file: let run_pip_audit fail the same way it always did
         hit = _audit_cache.get(key) if key else None
@@ -82,11 +102,14 @@ def generate_sbom(requirements_path: Path, output_path: Path) -> dict:
     flag (schema validation built into the tool, not reimplemented here)."""
     result = subprocess.run(
         [
-            "cyclonedx-py", "requirements", str(requirements_path),
+            sys.executable, "-m", "cyclonedx_py", "requirements", str(requirements_path),
             "--of", "json", "-o", str(output_path), "--validate",
         ],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        env=_UTF8_ENV,
+        stdin=subprocess.DEVNULL,  # a server has no usable stdin; never inherit it
     )
     if result.returncode != 0:
         raise RuntimeError(f"cyclonedx-py failed: {result.stderr}")
