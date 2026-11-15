@@ -5,6 +5,8 @@ COPY dashboard/package.json dashboard/package-lock.json ./
 RUN npm ci
 COPY dashboard/ ./
 ENV VITE_API_BASE=/api
+ENV VITE_AUTH_MODE=oidc
+ENV VITE_OIDC_ISSUER=http://localhost:8081/realms/mlshield
 RUN npm run build
 
 FROM nginxinc/nginx-unprivileged:1.27-alpine

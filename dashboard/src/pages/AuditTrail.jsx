@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from '../api'
+import { authMode, currentSession, login, logout, signOutLocal, takeAuthError } from '../auth'
 import { Badge, PageHead } from '../ui'
 
 // Dev-only "sign in": no real identity provider in this MVP (see
@@ -29,16 +30,36 @@ export default function AuditTrail() {
   const [role, setRole] = useState('SECURITY_REVIEWER')
   const [state, setState] = useState({ status: 'idle', data: null, error: null })
 
+  const oidc = authMode() === 'oidc'
+  const session = oidc ? currentSession() : null
+  const [authError] = useState(() => (oidc ? takeAuthError() : null))
+
+  async function fetchLog(token) {
+    setState({ status: 'loading', data: null, error: null })
+    try {
+      const data = await api.getAuditLog(token)
+      setState({ status: 'success', data, error: null })
+    } catch (error) {
+      if (oidc && (error.status === 401 || /^(invalid token|token expired)/.test(error.message))) signOutLocal()
+      setState({ status: 'error', data: null, error })
+    }
+  }
+
   async function signInAndFetch() {
     setState({ status: 'loading', data: null, error: null })
     try {
       const { token } = await api.getDevToken(subject, role)
-      const data = await api.getAuditLog(token)
-      setState({ status: 'success', data, error: null })
+      await fetchLog(token)
     } catch (error) {
       setState({ status: 'error', data: null, error })
     }
   }
+
+  // Back from the login redirect: load the log straight away.
+  useEffect(() => {
+    if (session) fetchLog(session.token)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const roleInfo = ROLES[role]
 
@@ -49,6 +70,32 @@ export default function AuditTrail() {
         reviewers and approvers may read it.
       </PageHead>
 
+      {oidc ? (
+        <section className="card" data-testid="oidc-panel">
+          <h3>Sign in</h3>
+          {authError && <div role="alert" data-testid="auth-error">{authError}</div>}
+          {session ? (
+            <>
+              <p className="sub">
+                Signed in as <b data-testid="signed-in-user">{session.claims.preferred_username || session.claims.sub}</b>.
+                Your roles (shown for information; the server decides access):{' '}
+                {(session.claims.realm_access?.roles || []).filter((r) => r in ROLES).map((r) => (
+                  <Badge key={r} tone="info">{ROLES[r].label}</Badge>
+                )) }
+              </p>
+              <div className="form-row">
+                <button onClick={() => fetchLog(session.token)} data-testid="fetch-audit-log">Reload log</button>
+                <button onClick={logout} data-testid="sign-out">Sign out</button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="sub">Sign in with your MLShield account. You will be sent to the identity provider and brought back here.</p>
+              <button onClick={login} data-testid="sign-in">Sign in</button>
+            </>
+          )}
+        </section>
+      ) : (
       <section className="card">
         <h3>Sign in</h3>
         <p className="sub">Demo sign-in only. There is no identity provider in this project, so pick any role.</p>
@@ -75,6 +122,7 @@ export default function AuditTrail() {
             : `${roleInfo.label} is not allowed to view the audit log. Try it to see a real access denial.`}
         </p>
       </section>
+      )}
 
       {state.status === 'idle' && (
         <section className="card empty">

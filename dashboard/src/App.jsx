@@ -12,7 +12,16 @@ const TABS = {
 }
 
 export default function App() {
-  const [active, setActive] = useState('overview')
+  // After a login redirect, land on the Audit Trail tab (auth.js sets the hint once).
+  const [active, setActive] = useState(() => {
+    try {
+      const hint = sessionStorage.getItem('mlshield.tab')
+      sessionStorage.removeItem('mlshield.tab')
+      return hint && TABS[hint] ? hint : 'overview'
+    } catch {
+      return 'overview'
+    }
+  })
   const ActiveComponent = TABS[active].component
 
   return (
