@@ -8,6 +8,7 @@ Phase 9 adds the transparency layer endpoints (/predict/explain,
 /model-card, /security-gate, /audit-log) plus a dev-only token issuance
 endpoint for the dashboard - see docs/phase9_transparency_spec.md.
 """
+import os
 import sys
 import threading
 from contextlib import asynccontextmanager
@@ -18,10 +19,11 @@ import joblib
 import pandas as pd
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from src.api.schemas import HealthResponse, PredictRequest, PredictResponse, Prediction
 from src.explainability.shap_explainer import explain_records
-from src.governance.audit_log import AuditLog
+from src.governance.audit_log import DEFAULT_LOG_PATH, AuditLog
 from src.governance.auth import ROLES, authorize, issue_token
 from src.models.train_baseline import CATEGORICAL_FEATURES, NUMERIC_FEATURES
 from src.security.dependency_scan import run_pip_audit_cached
@@ -70,6 +72,37 @@ except FileNotFoundError:
         file=sys.stderr,
     )
     raise
+
+
+# Files the gate and model card read at request time. Readiness reports them
+# missing instead of letting the first real request fail.
+_READY_FILES = [
+    MODEL_PATH,
+    REPO_ROOT / "models" / "baseline_model.joblib.sig",
+    REPO_ROOT / "security" / "signing_public_key.pem",
+    REPO_ROOT / "data" / "processed" / "phase5_poisoning_eval.json",
+    REPO_ROOT / "data" / "processed" / "phase6_adversarial_eval.json",
+    REPO_ROOT / "requirements.txt",
+]
+
+
+@app.get("/health/live")
+def health_live() -> dict:
+    """Process is up. Deliberately checks nothing else, so an orchestrator never
+    restarts a healthy process because a dependency is slow."""
+    return {"status": "alive"}
+
+
+@app.get("/health/ready")
+def health_ready():
+    """Can this instance do its job: required files present and the audit log
+    directory writable. Does NOT run the (slow) dependency scan."""
+    problems = [f"missing: {p.name}" for p in _READY_FILES if not p.exists()]
+    if not os.access(DEFAULT_LOG_PATH.parent, os.W_OK):
+        problems.append("audit log directory is not writable")
+    if problems:
+        return JSONResponse(status_code=503, content={"status": "not ready", "problems": problems})
+    return {"status": "ready"}
 
 
 @app.get("/health", response_model=HealthResponse)

@@ -1,0 +1,14 @@
+# Runtime dependencies of the API image only (training, DVC, MLflow, pytest excluded).
+# Versions must stay identical to requirements.txt, which the dependency scan reads.
+pandas==3.0.5
+numpy==2.4.6
+scikit-learn==1.9.1
+joblib==1.6.0
+fastapi==0.141.1
+uvicorn==0.53.0
+pydantic==2.13.5
+cryptography==50.0.1
+adversarial-robustness-toolbox==1.20.1
+pip_audit==2.10.1
+PyJWT==2.14.0
+shap==0.51.0

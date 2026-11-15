@@ -9,8 +9,6 @@ import json
 from pathlib import Path
 
 import joblib
-import mlflow
-import mlflow.sklearn
 import numpy as np
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestClassifier
@@ -76,6 +74,11 @@ def evaluate(pipeline: Pipeline, X, y_true) -> dict:
 
 
 def main():
+    # Imported here, not at module level: the API imports this module only for the
+    # feature-name constants and must not need mlflow installed.
+    import mlflow
+    import mlflow.sklearn
+
     # Phase 0's locked, fixed-seed split.
     train_raw = load_raw(Path(__file__).resolve().parents[2] / "data" / "raw" / "KDDTrain+.txt")
     train_df, val_df = make_split(train_raw)

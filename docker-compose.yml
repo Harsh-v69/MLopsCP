@@ -1,18 +1,29 @@
-version: "3.9"
-
-# Grows phase by phase — see progress.md for what each service is and
-# which phase added it. Airflow/postgres/dashboard land in later phases.
+# Only `web` is published (to localhost). `api` has no published port but keeps
+# outbound access, which the dependency scan needs to reach the OSV database.
 services:
-  data-loader:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
-    volumes:
-      - ./data:/app/data
-
   api:
-    build:
-      context: .
-      dockerfile: docker/api.Dockerfile
-    ports:
-      - "8000:8000"
+    build: { context: ., dockerfile: docker/api.Dockerfile }
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 2g
+    cpus: 2
+    volumes:
+      - state:/state
+      - audit:/app/data/audit
+  web:
+    build: { context: ., dockerfile: docker/web.Dockerfile }
+    restart: unless-stopped
+    depends_on: [api]
+    ports: ["127.0.0.1:8080:8080"]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 256m
+
+volumes:
+  state:
+  audit:

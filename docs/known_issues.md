@@ -18,8 +18,8 @@ items stay in the table with the commit that closed them.
 | KI-10 | M0 | **Dependency-scan cache is per process.** Two API workers each run their own scan, and a restart rescans (about 90 s, run at startup). | Acceptable for now. Move to PostgreSQL/Redis in M2. |
 | KI-11 | M0 | **Dashboard's first load depends on the warm-up scan.** Until the startup scan finishes, Overview and Model Card wait on it. | Open. Becomes a background job with a job ID in M2. |
 | KI-12 | M0 | **`PROJECT_STATUS.md` and `.claude/launch.json` are untracked.** `launch.json` holds paths specific to this machine. | Decide whether to commit `PROJECT_STATUS.md`; keep `launch.json` local. |
-| KI-13 | M1 | **Dockerfile base image is Python 3.11; local venv is Python 3.12.** Pinned versions (pandas 3.0.5, numpy 2.4.6, scikit-learn 1.9.1) were tested here on 3.12. | Verify in M1 by building and running the actual image. |
-| KI-14 | M0 | **Docker build and run were never verified by anyone** (original sandbox blocked Docker Hub). | Being worked on in M1. |
+| KI-13 | M1 | **Dockerfile base image is Python 3.11; local venv is Python 3.12.** Pinned versions (pandas 3.0.5, numpy 2.4.6, scikit-learn 1.9.1) were tested here on 3.12. | M1 Dockerfile now uses Python 3.12 to match local; still unverified until the image builds. |
+| KI-14 | M0 | **Docker build and run were never verified by anyone** (original sandbox blocked Docker Hub). | M1 wrote the Dockerfiles and compose file, but the API image has not built (PyPI timeouts on this network, 2026-11-15). Open until the build, `/health/ready`, restart persistence and Trivy scan are done. |
 | KI-15 | M0 | **Mid-semester `.pptx` is untracked** in the repo root. | Not mine; owner to decide whether to commit. |
 
 ## Closed

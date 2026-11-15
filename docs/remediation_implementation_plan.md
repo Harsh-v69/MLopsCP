@@ -15,7 +15,7 @@ earlier milestone's commit.
 | Milestone | Scope | Status |
 |---|---|---|
 | M0 | Baseline stabilization (B-10, B-03, docs, tests) | done except B-03 (waiting on owner decision) and the full attack-lab rerun |
-| M1 | Portable packaging (B-07, section 13) | not started |
+| M1 | Portable packaging (B-07, section 13) | files written, **unverified**: API image build failed twice on PyPI download timeouts; web image built; stack never started, no restart test, no Trivy scan |
 | M2 | Persistent infrastructure (B-08, section 8) | not started |
 | M3 | Identity and access (B-01, section 6) | not started |
 | M4 | Trust architecture (B-02, B-03, B-09, sections 7 and 9) | not started |
