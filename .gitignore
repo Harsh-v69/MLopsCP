@@ -45,3 +45,6 @@ data/quarantine/
 # seed (generate_poisoned_training_file caches by (seed, rate) and
 # regenerates on demand) - no need to version 19MB of derived data twice
 tests/attack_lab/fixtures/*.txt
+
+# Local secrets (Keycloak admin password etc.) - never commit
+.env

@@ -10,6 +10,10 @@ services:
     restart: unless-stopped
     environment:
       MLSHIELD_ENV: production  # no /auth/dev-token, no /docs; set explicitly so it is visible
+      # Tokens must come from Keycloak. The issuer is the browser-facing URL; keys are fetched over the internal network.
+      MLSHIELD_OIDC_ISSUER: http://localhost:8081/realms/mlshield
+      MLSHIELD_OIDC_AUDIENCE: mlshield-api
+      MLSHIELD_OIDC_JWKS_URL: http://keycloak:8080/realms/mlshield/protocol/openid-connect/certs
     read_only: true
     # exec is required: pip-audit builds and runs a temporary environment under /tmp
     tmpfs: ["/tmp:rw,exec,nosuid,nodev,size=1g"]
@@ -20,6 +24,32 @@ services:
     volumes:
       - state:/state
       - audit:/app/data/audit
+  keycloak-init:
+    # One-shot: the named volume is created root-owned, Keycloak runs as uid 1000.
+    image: alpine:3.20
+    command: ["chown", "-R", "1000:0", "/h2"]
+    volumes: [keycloak_data:/h2]
+    restart: "no"
+  keycloak:
+    # DEV MODE (start-dev, embedded H2 database, plain HTTP). Fine for local use only;
+    # a production Keycloak needs TLS, a real database and a fixed hostname (M10).
+    image: quay.io/keycloak/keycloak:26.0
+    command: ["start-dev", "--import-realm"]
+    restart: unless-stopped
+    depends_on:
+      keycloak-init: { condition: service_completed_successfully }
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?set KEYCLOAK_ADMIN_PASSWORD in .env}
+      KC_HOSTNAME: http://localhost:8081
+      KC_HTTP_ENABLED: "true"
+    volumes:
+      - ./docker/keycloak/mlshield-realm.json:/opt/keycloak/data/import/mlshield-realm.json:ro
+      - keycloak_data:/opt/keycloak/data/h2
+    ports: ["127.0.0.1:8081:8080"]
+    mem_limit: 1g
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
   web:
     build: { context: ., dockerfile: docker/web.Dockerfile }
     restart: unless-stopped
@@ -32,5 +62,6 @@ services:
     mem_limit: 256m
 
 volumes:
+  keycloak_data:
   state:
   audit:

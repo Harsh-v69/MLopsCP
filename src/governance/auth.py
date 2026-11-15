@@ -2,11 +2,14 @@
 scheme are locked in docs/phase8_governance_spec.md (Part A) before this
 file was written.
 """
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
 import jwt
+
+from src.governance.oidc import oidc_configured, roles_from_claims, verify_oidc_token
 
 JWT_ALGORITHM = "HS256"
 JWT_DEFAULT_EXPIRY_SECONDS = 3600
@@ -73,7 +76,15 @@ class AuthResult:
 
 def authorize(token: str, action: str, secret: Optional[str] = None) -> AuthResult:
     """Fail-closed: any decode/verification failure denies, regardless of
-    what action was requested."""
+    what action was requested.
+
+    Which tokens are accepted: an explicit `secret` (tests) or MLSHIELD_ENV=dev use
+    the local HS256 scheme; otherwise tokens must come from the configured OIDC
+    provider, and with none configured everything is denied."""
+    if secret is None and oidc_configured():
+        return _authorize_oidc(token, action)
+    if secret is None and os.environ.get("MLSHIELD_ENV", "production") != "dev":
+        return AuthResult(allowed=False, subject=None, role=None, reason="no identity provider configured")
     try:
         payload = jwt.decode(token, secret or _get_or_create_secret(), algorithms=[JWT_ALGORITHM])
     except jwt.ExpiredSignatureError:
@@ -92,3 +103,19 @@ def authorize(token: str, action: str, secret: Optional[str] = None) -> AuthResu
                            reason=f"role {role} is not permitted to {action}")
 
     return AuthResult(allowed=True, subject=subject, role=role, reason="ok")
+
+
+def _authorize_oidc(token: str, action: str) -> AuthResult:
+    try:
+        claims = verify_oidc_token(token)
+    except jwt.ExpiredSignatureError:
+        return AuthResult(allowed=False, subject=None, role=None, reason="token expired")
+    except jwt.PyJWTError as e:  # bad signature/issuer/audience/claims, or keys unreachable
+        return AuthResult(allowed=False, subject=None, role=None, reason=f"invalid token: {type(e).__name__}")
+    subject = claims.get("sub")
+    known = [r for r in roles_from_claims(claims) if r in PERMISSIONS]
+    for role in known:
+        if action in PERMISSIONS[role]:
+            return AuthResult(allowed=True, subject=subject, role=role, reason="ok")
+    return AuthResult(allowed=False, subject=subject, role=known[0] if known else None,
+                       reason=f"no role permits {action}" if known else "token carries no MLShield role")

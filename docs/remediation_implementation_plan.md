@@ -17,7 +17,7 @@ earlier milestone's commit.
 | M0 | Baseline stabilization (B-10, B-03, docs, tests) | done except B-03 (waiting on owner decision) and the full attack-lab rerun |
 | M1 | Portable packaging (B-07, section 13) | mostly verified on 2026-11-15: both images build (API via a PyPI mirror), stack starts, health/ready work, non-root, read-only root, only web published, audit log and JWT secret survive down/up. **Not verified:** gate dependency scan inside the container (timed out; pip-audit installs packages from PyPI, which is slow here), Trivy scan (vulnerability DB download failed), clean-checkout build |
 | M2 | Persistent infrastructure (B-08, section 8) | started: schema + migration verified on SQLite and real Postgres; backup/restore proven; MinIO, Redis/Celery, MLflow-on-Postgres, API wiring not done (PyPI downloads of psycopg/boto3/redis time out) |
-| M3 | Identity and access (B-01, section 6) | started 2026-11-15: dev-token removed from production (route not registered, startup refuses dev auth in production), API hardening (size limit, rate limit, CORS allowlist from env, security headers, correlation IDs, safe errors, docs off in production), 9 new tests. **Not done:** Keycloak/OIDC and PKCE login, 7-role matrix, project membership/isolation, escalation tests, per-route authorization tests, dashboard login |
+| M3 | Identity and access (B-01, section 6) | in progress 2026-11-15: dev-token gated to dev, API hardening, OIDC token validation (issuer/audience/expiry/signature, asymmetric algorithms only) tested with 11 unit cases and verified live against Keycloak (allowed role 200, denied role 403). **Not done:** dashboard PKCE login, 7-role matrix, project membership/isolation, per-route authorization tests, key-rotation and logout checks |
 | M4 | Trust architecture (B-02, B-03, B-09, sections 7 and 9) | not started |
 | M5 | Model independence (B-05, section 4) | not started |
 | M6 | Evidence quality, policy engine (sections 5 and 15) | not started |
@@ -37,6 +37,17 @@ on-call destination) are marked **[OWNER]** and are built and verified locally f
 step documented as a clearly separate task, not silently skipped.
 
 ---
+
+## Carry-over rule: unfinished earlier work must not block later milestones
+
+| Unfinished item | Owner milestone | Why later work does not wait on it | What later work must not assume |
+|---|---|---|---|
+| B-03 model signature mismatch (gate shows FAIL) | M4 (needs owner decision) | M3 changes auth only; no test depends on the gate decision | That the gate passes or that the model is trusted |
+| Trivy scan and in-container dependency scan (M1) | M1 follow-up | Images build and run without them | That images are scanned; do not ship before they run |
+| Postgres wiring, MinIO, Redis/Celery (M2) | M2 follow-up | M3 takes roles from Keycloak token claims, not from the database | That roles, projects or audit events are stored in Postgres; project membership (M3) needs M2 wiring first |
+| Slow PyPI route from this network | none | `PIP_INDEX_URL` build arg works around it | That the mirror build is a release build |
+
+Each item is tracked in `docs/known_issues.md`; none is silently dropped.
 
 ## M0: Baseline stabilization
 
