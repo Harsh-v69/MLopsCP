@@ -19,7 +19,9 @@ items stay in the table with the commit that closed them.
 | KI-11 | M0 | **Dashboard's first load depends on the warm-up scan.** Until the startup scan finishes, Overview and Model Card wait on it. | Open. Becomes a background job with a job ID in M2. |
 | KI-12 | M0 | **`PROJECT_STATUS.md` and `.claude/launch.json` are untracked.** `launch.json` holds paths specific to this machine. | Decide whether to commit `PROJECT_STATUS.md`; keep `launch.json` local. |
 | KI-13 | M1 | **Dockerfile base image is Python 3.11; local venv is Python 3.12.** Pinned versions (pandas 3.0.5, numpy 2.4.6, scikit-learn 1.9.1) were tested here on 3.12. | M1 Dockerfile now uses Python 3.12 to match local; still unverified until the image builds. |
-| KI-14 | M0 | **Docker build and run were never verified by anyone** (original sandbox blocked Docker Hub). | M1 wrote the Dockerfiles and compose file, but the API image has not built (PyPI timeouts on this network, 2026-11-15). Open until the build, `/health/ready`, restart persistence and Trivy scan are done. |
+| KI-14 | M0 | **Docker build and run were never verified by anyone** (original sandbox blocked Docker Hub). | M1 (2026-11-15): images build, stack runs, restart persistence proven. Still open: gate dependency scan inside the container did not finish (pip-audit installs packages from PyPI, about 28 KB/s from this network); Trivy scan failed on its DB download. |
+| KI-16 | M1 | **PyPI file host is about 28 KB/s from this network** (other hosts 5 to 7 MB/s). API image was built through the mirror mirrors.aliyun.com (`PIP_INDEX_URL`); only one file's hash was checked against PyPI. | Open. Rebuild from official PyPI on a normal route before release, or hash-pin requirements. |
+| KI-17 | M1 | **`/tmp` in the API container needs `exec`** because pip-audit runs a temporary environment there (found and fixed in compose). | Closed in this commit. |
 | KI-15 | M0 | **Mid-semester `.pptx` is untracked** in the repo root. | Not mine; owner to decide whether to commit. |
 
 ## Closed

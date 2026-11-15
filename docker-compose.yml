@@ -2,10 +2,15 @@
 # outbound access, which the dependency scan needs to reach the OSV database.
 services:
   api:
-    build: { context: ., dockerfile: docker/api.Dockerfile }
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
     restart: unless-stopped
     read_only: true
-    tmpfs: [/tmp]
+    # exec is required: pip-audit builds and runs a temporary environment under /tmp
+    tmpfs: ["/tmp:rw,exec,nosuid,nodev,size=1g"]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     mem_limit: 2g

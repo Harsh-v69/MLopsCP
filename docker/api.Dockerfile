@@ -1,5 +1,7 @@
 # syntax=docker/dockerfile:1
 FROM python:3.12-slim AS build
+# Optional package index override (build arg), e.g. a nearby mirror; default is official PyPI.
+ARG PIP_INDEX_URL=https://pypi.org/simple
 WORKDIR /w
 COPY requirements-api.txt .
 RUN --mount=type=cache,target=/root/.cache/pip pip wheel --default-timeout=120 --retries 8 -r requirements-api.txt -w /wheels
